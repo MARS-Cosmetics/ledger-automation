@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.python-version
+
+# Claude / editor local
+.claude/
+.vscode/
+.idea/
+.DS_Store
+
+# Local test ledger files (don't commit real ledgers)
+*.xls
+/uploads/
+/private/
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Allow the generated sample (built from test fixtures, safe to ship)
+!sample_output.xlsx
