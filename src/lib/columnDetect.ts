@@ -38,8 +38,10 @@ export const BRAND_FIELD_SYNONYMS: Record<string, string[]> = {
   category: ['category', 'cat', 'type of voucher', 'voucher category'],
 };
 
-export const REQUIRED_MARS = ['vch_no', 'net_amount', 'period', 'category'];
-export const REQUIRED_BRAND = ['reference', 'net_amount', 'period', 'category'];
+export const REQUIRED_MARS = ['vch_no', 'net_amount'];
+export const REQUIRED_BRAND = ['reference', 'net_amount'];
+
+export const HIDDEN_FIELDS = new Set(['period', 'category']);
 
 function score(headerNorm: string, candidate: string): number {
   if (headerNorm === candidate) return 1000;

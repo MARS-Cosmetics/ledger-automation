@@ -82,13 +82,6 @@ function approxEqual(a: number, b: number): boolean {
   return Math.abs(a - b) < AMOUNT_TOLERANCE;
 }
 
-function filterRecon(rows: Row[], periodCol: string): Row[] {
-  return rows.filter((r) => {
-    const v = normStr(r[periodCol]).toLowerCase();
-    return v === '' || v === 'recon';
-  });
-}
-
 interface AggValue {
   amount: number;
   count: number;
@@ -117,26 +110,22 @@ export function reconcile(
   marsCols: ColumnMapping,
   brandCols: ColumnMapping,
 ): ReconResult {
-  for (const k of ['vch_no', 'net_amount', 'period', 'category'] as const) {
+  for (const k of ['vch_no', 'net_amount'] as const) {
     if (!marsCols[k]) throw new Error(`Mars column mapping missing required key: ${k}`);
   }
-  for (const k of ['reference', 'net_amount', 'period', 'category'] as const) {
+  for (const k of ['reference', 'net_amount'] as const) {
     if (!brandCols[k]) throw new Error(`Brand column mapping missing required key: ${k}`);
   }
 
   const marsVchCol = marsCols.vch_no!;
   const marsAmtCol = marsCols.net_amount!;
-  const marsCatCol = marsCols.category!;
-  const marsPeriodCol = marsCols.period!;
 
   const brandRefCol = brandCols.reference!;
   const brandCorrectRefCol = brandCols.correct_ref;
   const brandAmtCol = brandCols.net_amount!;
-  const brandCatCol = brandCols.category!;
-  const brandPeriodCol = brandCols.period!;
 
-  const mars = filterRecon(marsRows, marsPeriodCol);
-  const brand = filterRecon(brandRows, brandPeriodCol);
+  const mars = marsRows;
+  const brand = brandRows;
 
   const marsKey = (r: Row) => normKey(r[marsVchCol]);
   const marsAmt = (r: Row) => toNumber(r[marsAmtCol]);
@@ -193,7 +182,7 @@ export function reconcile(
     return { ...r, Amount_Mars: amtMars, Diff: diff, Remarks: remarks };
   });
 
-  const summary = buildSummary(mars, brand, marsCatCol, marsAmtCol, brandCatCol, brandAmtCol);
+  const summary = buildSummary(mars, brand, marsAmtCol, brandAmtCol);
 
   const matched = marsOut.filter((r) => r.Remarks !== 'Not Booked by Brand').length;
   const unmatchedMars = marsOut.filter((r) => r.Remarks === 'Not Booked by Brand').length;
@@ -231,46 +220,23 @@ function inferHeaders(rows: Row[]): string[] {
 function buildSummary(
   mars: Row[],
   brand: Row[],
-  marsCatCol: string,
   marsAmtCol: string,
-  brandCatCol: string,
   brandAmtCol: string,
 ): SummaryRow[] {
-  const marsByCat = new Map<string, number>();
-  for (const r of mars) {
-    const c = toCanonicalCategory(r[marsCatCol]);
-    marsByCat.set(c, (marsByCat.get(c) ?? 0) + toNumber(r[marsAmtCol]));
-  }
-  const brandByCat = new Map<string, number>();
-  for (const r of brand) {
-    const c = toCanonicalCategory(r[brandCatCol]);
-    brandByCat.set(c, (brandByCat.get(c) ?? 0) + toNumber(r[brandAmtCol]));
-  }
-
-  const allCats = new Set<string>([...CANONICAL_CATEGORIES, ...marsByCat.keys(), ...brandByCat.keys()]);
-  const ordered = [...allCats].sort((a, b) => {
-    const ai = (CANONICAL_CATEGORIES as readonly string[]).indexOf(a);
-    const bi = (CANONICAL_CATEGORIES as readonly string[]).indexOf(b);
-    const aOrder = ai === -1 ? CANONICAL_CATEGORIES.length : ai;
-    const bOrder = bi === -1 ? CANONICAL_CATEGORIES.length : bi;
-    if (aOrder !== bOrder) return aOrder - bOrder;
-    return a.localeCompare(b);
-  });
-
-  const rows: SummaryRow[] = ordered.map((cat) => {
-    const m = marsByCat.get(cat) ?? 0;
-    const b = brandByCat.get(cat) ?? 0;
-    return { Particulars: cat, Amount_Mars: m, Amount_Brand: b, Difference: m - b };
-  });
-
-  const totalMars = rows.reduce((s, r) => s + r.Amount_Mars, 0);
-  const totalBrand = rows.reduce((s, r) => s + r.Amount_Brand, 0);
-  rows.push({
-    Particulars: 'Grand Total',
-    Amount_Mars: totalMars,
-    Amount_Brand: totalBrand,
-    Difference: totalMars - totalBrand,
-  });
-
-  return rows;
+  const marsTotal = mars.reduce((s, r) => s + toNumber(r[marsAmtCol]), 0);
+  const brandTotal = brand.reduce((s, r) => s + toNumber(r[brandAmtCol]), 0);
+  return [
+    {
+      Particulars: 'Invoice',
+      Amount_Mars: marsTotal,
+      Amount_Brand: brandTotal,
+      Difference: marsTotal - brandTotal,
+    },
+    {
+      Particulars: 'Grand Total',
+      Amount_Mars: marsTotal,
+      Amount_Brand: brandTotal,
+      Difference: marsTotal - brandTotal,
+    },
+  ];
 }
