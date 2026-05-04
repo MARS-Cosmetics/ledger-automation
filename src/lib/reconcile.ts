@@ -64,7 +64,8 @@ function normCatForMatch(x: unknown): string {
 
 export function toCanonicalCategory(x: unknown): string {
   const s = normCatForMatch(x);
-  return CATEGORY_MAP[s] ?? (s ? 'Others' : 'Others');
+  if (!s) return 'Invoice';
+  return CATEGORY_MAP[s] ?? 'Others';
 }
 
 function toNumber(x: unknown): number {
@@ -82,7 +83,10 @@ function approxEqual(a: number, b: number): boolean {
 }
 
 function filterRecon(rows: Row[], periodCol: string): Row[] {
-  return rows.filter((r) => normStr(r[periodCol]).toLowerCase() === 'recon');
+  return rows.filter((r) => {
+    const v = normStr(r[periodCol]).toLowerCase();
+    return v === '' || v === 'recon';
+  });
 }
 
 interface AggValue {
