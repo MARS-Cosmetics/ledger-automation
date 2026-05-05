@@ -6,11 +6,6 @@ export const CANONICAL_CATEGORIES = [
   'CN',
   'Contra_CN',
   'DN',
-  'Adv Adj.',
-  'Marketing Exp',
-  'Marketing Exp Reversal',
-  'Payment',
-  'Receipt',
   'Others',
 ] as const;
 
@@ -28,20 +23,6 @@ const CATEGORY_MAP: Record<string, string> = {
   dn: 'DN',
   debit_note: 'DN',
   debitnote: 'DN',
-  adv_adj: 'Adv Adj.',
-  adv_adjustment: 'Adv Adj.',
-  advance_adjustment: 'Adv Adj.',
-  advadj: 'Adv Adj.',
-  marketing_exp: 'Marketing Exp',
-  marketing_expense: 'Marketing Exp',
-  marketing: 'Marketing Exp',
-  marketing_exp_reversal: 'Marketing Exp Reversal',
-  marketing_expense_reversal: 'Marketing Exp Reversal',
-  marketing_reversal: 'Marketing Exp Reversal',
-  payment: 'Payment',
-  pmt: 'Payment',
-  receipt: 'Receipt',
-  rcpt: 'Receipt',
 };
 
 const AMOUNT_TOLERANCE = 0.005;
@@ -82,6 +63,14 @@ function approxEqual(a: number, b: number): boolean {
   return Math.abs(a - b) < AMOUNT_TOLERANCE;
 }
 
+function filterRecon(rows: Row[], periodCol: string | undefined): Row[] {
+  if (!periodCol) return rows;
+  return rows.filter((r) => {
+    const v = normStr(r[periodCol]).toLowerCase();
+    return v === '' || v === 'recon';
+  });
+}
+
 interface AggValue {
   amount: number;
   count: number;
@@ -119,13 +108,17 @@ export function reconcile(
 
   const marsVchCol = marsCols.vch_no!;
   const marsAmtCol = marsCols.net_amount!;
+  const marsCatCol = marsCols.category;
+  const marsPeriodCol = marsCols.period;
 
   const brandRefCol = brandCols.reference!;
   const brandCorrectRefCol = brandCols.correct_ref;
   const brandAmtCol = brandCols.net_amount!;
+  const brandCatCol = brandCols.category;
+  const brandPeriodCol = brandCols.period;
 
-  const mars = marsRows;
-  const brand = brandRows;
+  const mars = filterRecon(marsRows, marsPeriodCol);
+  const brand = filterRecon(brandRows, brandPeriodCol);
 
   const marsKey = (r: Row) => normKey(r[marsVchCol]);
   const marsAmt = (r: Row) => toNumber(r[marsAmtCol]);
@@ -182,7 +175,7 @@ export function reconcile(
     return { ...r, Amount_Mars: amtMars, Diff: diff, Remarks: remarks };
   });
 
-  const summary = buildSummary(mars, brand, marsAmtCol, brandAmtCol);
+  const summary = buildSummary(mars, brand, marsAmtCol, brandAmtCol, marsCatCol, brandCatCol);
 
   const matched = marsOut.filter((r) => r.Remarks !== 'Not Booked by Brand').length;
   const unmatchedMars = marsOut.filter((r) => r.Remarks === 'Not Booked by Brand').length;
@@ -222,21 +215,42 @@ function buildSummary(
   brand: Row[],
   marsAmtCol: string,
   brandAmtCol: string,
+  marsCatCol: string | undefined,
+  brandCatCol: string | undefined,
 ): SummaryRow[] {
-  const marsTotal = mars.reduce((s, r) => s + toNumber(r[marsAmtCol]), 0);
-  const brandTotal = brand.reduce((s, r) => s + toNumber(r[brandAmtCol]), 0);
-  return [
-    {
-      Particulars: 'Invoice',
-      Amount_Mars: marsTotal,
-      Amount_Brand: brandTotal,
-      Difference: marsTotal - brandTotal,
-    },
-    {
-      Particulars: 'Grand Total',
-      Amount_Mars: marsTotal,
-      Amount_Brand: brandTotal,
-      Difference: marsTotal - brandTotal,
-    },
-  ];
+  const catOf = (catCol: string | undefined, r: Row): string =>
+    catCol ? toCanonicalCategory(r[catCol]) : 'Invoice';
+
+  const marsByCat = new Map<string, number>();
+  for (const r of mars) {
+    const c = catOf(marsCatCol, r);
+    marsByCat.set(c, (marsByCat.get(c) ?? 0) + toNumber(r[marsAmtCol]));
+  }
+  const brandByCat = new Map<string, number>();
+  for (const r of brand) {
+    const c = catOf(brandCatCol, r);
+    brandByCat.set(c, (brandByCat.get(c) ?? 0) + toNumber(r[brandAmtCol]));
+  }
+
+  const present = new Set<string>([...marsByCat.keys(), ...brandByCat.keys()]);
+  const ordered = (CANONICAL_CATEGORIES as readonly string[]).filter((c) => present.has(c));
+  const extras = [...present].filter((c) => !(CANONICAL_CATEGORIES as readonly string[]).includes(c));
+  const final = [...ordered, ...extras.sort()];
+
+  const rows: SummaryRow[] = final.map((cat) => {
+    const m = marsByCat.get(cat) ?? 0;
+    const b = brandByCat.get(cat) ?? 0;
+    return { Particulars: cat, Amount_Mars: m, Amount_Brand: b, Difference: m - b };
+  });
+
+  const totalMars = rows.reduce((s, r) => s + r.Amount_Mars, 0);
+  const totalBrand = rows.reduce((s, r) => s + r.Amount_Brand, 0);
+  rows.push({
+    Particulars: 'Grand Total',
+    Amount_Mars: totalMars,
+    Amount_Brand: totalBrand,
+    Difference: totalMars - totalBrand,
+  });
+
+  return rows;
 }
