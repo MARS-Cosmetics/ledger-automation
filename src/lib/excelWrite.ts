@@ -5,7 +5,7 @@ const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCE
 const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } } as const;
 const NOT_BOOKED_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } } as const;
 const MISMATCH_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF4CE' } } as const;
-const MONEY_FMT = '#,##0.00;[Red]-#,##0.00';
+const MONEY_FMT = '#,##,##0.00;(#,##,##0.00);"-"';
 
 const MONEY_HEADERS = new Set([
   'Amount_Mars',

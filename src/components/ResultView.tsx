@@ -124,5 +124,10 @@ function renderCell(v: unknown): string {
 
 function fmt(n: number): string {
   if (!Number.isFinite(n)) return '';
-  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n === 0) return '-';
+  const abs = Math.abs(n).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return n < 0 ? `(${abs})` : abs;
 }

@@ -170,7 +170,7 @@ export function reconcile(
     const own = brandAmt(r);
     const marsRow = marsAgg.get(key);
     const amtMars = marsRow?.amount ?? 0;
-    const diff = amtMars - own;
+    const diff = own - amtMars;
     let remarks: string;
     if (!marsRow) {
       remarks = 'Not Booked by Mars';
