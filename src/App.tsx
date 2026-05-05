@@ -14,8 +14,8 @@ import {
 } from './lib/columnDetect';
 import { readWorkbook } from './lib/excelRead';
 import { buildOutputFilename, buildReconWorkbook } from './lib/excelWrite';
-import { reconcile } from './lib/reconcile';
-import type { ColumnMapping, ReconResult, Workbook } from './lib/types';
+import { DEFAULT_OPTIONS, reconcile } from './lib/reconcile';
+import type { ColumnMapping, ReconOptions, ReconResult, Workbook } from './lib/types';
 
 interface SideState {
   workbook: Workbook | null;
@@ -35,6 +35,7 @@ export default function App() {
   const [reconError, setReconError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [options, setOptions] = useState<ReconOptions>(DEFAULT_OPTIONS);
 
   useEffect(() => {
     setReconResult(null);
@@ -124,7 +125,7 @@ export default function App() {
     setReconError(null);
     setReconResult(null);
     try {
-      const res = reconcile(marsSheet.rows, brandSheet.rows, mars.mapping, brand.mapping);
+      const res = reconcile(marsSheet.rows, brandSheet.rows, mars.mapping, brand.mapping, options);
       setReconResult(res);
     } catch (e) {
       setReconError(e instanceof Error ? e.message : String(e));
@@ -224,8 +225,68 @@ export default function App() {
             )}
           </section>
 
+          <section className="mt-6 card space-y-4">
+            <h2 className="text-lg font-semibold">3. Match settings</h2>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <label className="label">Match key</label>
+                <select
+                  className="field"
+                  value={options.matchMode}
+                  onChange={(e) =>
+                    setOptions((o) => ({ ...o, matchMode: e.target.value as ReconOptions['matchMode'] }))
+                  }
+                >
+                  <option value="vch">Vch No only (recommended)</option>
+                  <option value="vch_and_category">Vch No + Category (strict)</option>
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Strict mode requires the Category to match too — use this only if your Mars and Brand categories are aligned.
+                </p>
+              </div>
+              <div>
+                <label className="label">Match tolerance (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="field"
+                  value={options.matchToleranceRupees}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      matchToleranceRupees: Number(e.target.value) || 0,
+                    }))
+                  }
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Differences within this amount are treated as Match. Default ₹5.
+                </p>
+              </div>
+              <div>
+                <label className="label">Period filter</label>
+                <select
+                  className="field"
+                  value={options.acceptBlankPeriod ? 'lenient' : 'strict'}
+                  onChange={(e) =>
+                    setOptions((o) => ({ ...o, acceptBlankPeriod: e.target.value === 'lenient' }))
+                  }
+                >
+                  <option value="lenient">Recon + blank Period (lenient)</option>
+                  <option value="strict">Strict — only Period = "Recon"</option>
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Lenient mode also keeps rows with empty Period. Use strict if your data always sets Period.
+                </p>
+              </div>
+            </div>
+            <p className="border-t border-slate-200 pt-3 text-xs text-slate-500">
+              Match check uses absolute values, so it doesn't matter whether your Mars and Brand columns share the same sign convention or not. Displayed amounts are kept exactly as in your source files.
+            </p>
+          </section>
+
           <section className="mt-6 card space-y-3">
-            <h2 className="text-lg font-semibold">3. Run reconciliation</h2>
+            <h2 className="text-lg font-semibold">4. Run reconciliation</h2>
             {!canRun && (
               <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 Map all required (*) fields before running.

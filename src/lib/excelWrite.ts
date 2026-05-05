@@ -5,6 +5,7 @@ const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCE
 const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } } as const;
 const NOT_BOOKED_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } } as const;
 const MISMATCH_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF4CE' } } as const;
+const MATCH_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } } as const;
 const MONEY_FMT = '#,##,##0.00;(#,##,##0.00);"-"';
 
 const MONEY_HEADERS = new Set([
@@ -43,19 +44,9 @@ function writeSummary(wb: ExcelJS.Workbook, res: ReconResult, generatedAt: Date)
     { key: 'diff', width: 18 },
   ];
 
-  const stats: [string, string | number][] = [
-    ['Mars rows in Recon period', res.stats.mars_recon_rows],
-    ['Brand rows in Recon period', res.stats.brand_recon_rows],
-    ['Mars rows matched', res.stats.mars_matched_rows],
-    ['Mars rows not booked by Brand', res.stats.mars_unmatched_rows],
-    ['Brand rows not booked by Mars', res.stats.brand_unmatched_rows],
-    ['Generated at', formatTimestamp(generatedAt)],
-  ];
-
-  const statsHeader = ws.addRow(['Metric', 'Value']);
-  styleHeader(statsHeader);
-  for (const [label, val] of stats) ws.addRow([label, val]);
-
+  const titleRow = ws.addRow(['Recon Summary – Category Wise']);
+  titleRow.getCell(1).font = { bold: true, size: 13 };
+  ws.mergeCells(titleRow.number, 1, titleRow.number, 4);
   ws.addRow([]);
 
   const tableHeader = ws.addRow(['Particulars', 'Amount_Mars', 'Amount_Brand', 'Difference']);
@@ -71,6 +62,25 @@ function writeSummary(wb: ExcelJS.Workbook, res: ReconResult, generatedAt: Date)
       });
     }
   }
+
+  ws.addRow([]);
+  ws.addRow([]);
+
+  const statsTitle = ws.addRow(['Match Statistics']);
+  statsTitle.getCell(1).font = { bold: true, size: 12 };
+
+  const statsHeader = ws.addRow(['Metric', 'Mars side', 'Brand side']);
+  styleHeader(statsHeader);
+
+  const s = res.stats;
+  ws.addRow(['Recon period rows', s.mars_recon_rows, s.brand_recon_rows]);
+  ws.addRow(['Match', s.mars_match, s.brand_match]);
+  ws.addRow(['Amount Mismatch', s.mars_mismatch, s.brand_mismatch]);
+  ws.addRow(['Not Booked by Brand', s.mars_not_booked_by_brand, '']);
+  ws.addRow(['Not Booked by Mars', '', s.brand_not_booked_by_mars]);
+
+  ws.addRow([]);
+  ws.addRow(['Generated at', formatTimestamp(generatedAt)]);
 }
 
 function writeDataSheet(wb: ExcelJS.Workbook, name: string, headers: string[], rows: Row[]): void {
@@ -97,9 +107,13 @@ function writeDataSheet(wb: ExcelJS.Workbook, name: string, headers: string[], r
         row.eachCell((cell) => {
           cell.fill = NOT_BOOKED_FILL;
         });
-      } else if (rem.startsWith('Amount Mismatch')) {
+      } else if (rem === 'Amount Mismatch') {
         row.eachCell((cell) => {
           cell.fill = MISMATCH_FILL;
+        });
+      } else if (rem === 'Match') {
+        row.eachCell((cell) => {
+          cell.fill = MATCH_FILL;
         });
       }
     }

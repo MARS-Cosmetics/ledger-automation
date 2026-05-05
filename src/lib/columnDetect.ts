@@ -16,6 +16,11 @@ export const MARS_FIELD_SYNONYMS: Record<string, string[]> = {
     'vch number',
     'voucher number',
     'bill no',
+    'invoice no',
+    'invoice number',
+    'document no',
+    'document number',
+    'doc no',
     'vchno',
     'vch',
     'voucher',
@@ -33,7 +38,15 @@ export const MARS_FIELD_SYNONYMS: Record<string, string[]> = {
 export const BRAND_FIELD_SYNONYMS: Record<string, string[]> = {
   reference: ['reference', 'ref', 'ref no', 'reference no', 'vch no', 'voucher no', 'ref number'],
   correct_ref: ['correct ref no', 'correct reference', 'corrected ref', 'manual ref'],
-  net_amount: ['net amount', 'net amt', 'net', 'amount', 'amt'],
+  alt_reference: [
+    'document number',
+    'doc number',
+    'doc no',
+    'invoice reference',
+    'invoice ref',
+    'assignment',
+  ],
+  net_amount: ['net amount', 'net amt', 'amount in local currency', 'amount local', 'amount', 'amt'],
   period: ['period'],
   category: ['category', 'cat', 'type of voucher', 'voucher category'],
 };
@@ -41,7 +54,32 @@ export const BRAND_FIELD_SYNONYMS: Record<string, string[]> = {
 export const REQUIRED_MARS = ['vch_no', 'net_amount'];
 export const REQUIRED_BRAND = ['reference', 'net_amount'];
 
-export const HIDDEN_FIELDS = new Set(['period', 'category']);
+export const HIDDEN_FIELDS = new Set<string>(['date', 'type', 'account', 'debit', 'credit']);
+
+export const FIELD_LABELS: Record<string, string> = {
+  vch_no: 'Vch / Bill No',
+  reference: 'Reference (= Mars Vch No)',
+  correct_ref: 'Correct Ref No (override)',
+  alt_reference: 'Alt Reference (Document No / Invoice Ref)',
+  net_amount: 'Net Amount',
+  period: 'Period',
+  category: 'Category',
+  date: 'Date',
+  type: 'Type',
+  account: 'Account',
+  debit: 'Debit',
+  credit: 'Credit',
+};
+
+export const FIELD_HINTS: Record<string, string> = {
+  vch_no: 'The voucher number that uniquely identifies each Mars entry.',
+  reference: 'The Brand column that holds the Mars Vch No (usually called "Reference").',
+  correct_ref: 'Optional — used when Reference is wrong/blank and a manual override exists.',
+  alt_reference: 'Optional — fallback used only when Reference and Correct Ref No are blank. Pick Document Number / Invoice reference if needed.',
+  net_amount: 'The signed rupee amount used for amount comparison. On Brand SAP exports this is often "Amount in local currency".',
+  period: 'Used to filter rows. Only rows with Period = "Recon" enter the reconciliation.',
+  category: 'Used in the match key when "Vch + Category" mode is selected, and in the Recon Summary breakdown.',
+};
 
 function score(headerNorm: string, candidate: string): number {
   if (headerNorm === candidate) return 1000;
