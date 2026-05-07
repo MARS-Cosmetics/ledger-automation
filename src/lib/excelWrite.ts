@@ -6,6 +6,7 @@ const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2
 const NOT_BOOKED_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } } as const;
 const MISMATCH_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF4CE' } } as const;
 const MATCH_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } } as const;
+const REVERSAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } } as const;
 const MONEY_FMT = '#,##,##0.00;(#,##,##0.00);"-"';
 
 const MONEY_HEADERS = new Set([
@@ -76,6 +77,7 @@ function writeSummary(wb: ExcelJS.Workbook, res: ReconResult, generatedAt: Date)
   ws.addRow(['Recon period rows', s.mars_recon_rows, s.brand_recon_rows]);
   ws.addRow(['Match', s.mars_match, s.brand_match]);
   ws.addRow(['Amount Mismatch', s.mars_mismatch, s.brand_mismatch]);
+  ws.addRow(['Reversal', '', s.brand_reversal]);
   ws.addRow(['Not Booked by Brand', s.mars_not_booked_by_brand, '']);
   ws.addRow(['Not Booked by Mars', '', s.brand_not_booked_by_mars]);
 
@@ -114,6 +116,10 @@ function writeDataSheet(wb: ExcelJS.Workbook, name: string, headers: string[], r
       } else if (rem === 'Match') {
         row.eachCell((cell) => {
           cell.fill = MATCH_FILL;
+        });
+      } else if (rem.startsWith('Reversal')) {
+        row.eachCell((cell) => {
+          cell.fill = REVERSAL_FILL;
         });
       }
     }

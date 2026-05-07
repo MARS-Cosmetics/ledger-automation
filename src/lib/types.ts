@@ -31,6 +31,7 @@ export interface ReconStats {
   brand_match: number;
   brand_mismatch: number;
   brand_not_booked_by_mars: number;
+  brand_reversal: number;
 }
 
 export interface DiagnosticInfo {

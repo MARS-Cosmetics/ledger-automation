@@ -141,6 +141,7 @@ export function reconcile(
   const brandRefCol = brandCols.reference!;
   const brandCorrectRefCol = brandCols.correct_ref;
   const brandAltRefCol = brandCols.alt_reference;
+  const brandInvoiceRefCol = brandCols.invoice_ref;
   const brandAmtCol = brandCols.net_amount!;
   const brandCatCol = brandCols.category;
   const brandPeriodCol = brandCols.period;
@@ -228,6 +229,10 @@ export function reconcile(
     return { ...r, Amount_Mars: amtMars, Diff: displayDiff, Remarks: remarks };
   });
 
+  if (brandInvoiceRefCol) {
+    applyReversalRemarks(brandOut, brandInvoiceRefCol, brandRefCol, brandAmtCol);
+  }
+
   const summary = buildSummary(
     mars,
     brand,
@@ -243,6 +248,7 @@ export function reconcile(
   const brandMatch = brandOut.filter((r) => r.Remarks === 'Match').length;
   const brandMismatch = brandOut.filter((r) => r.Remarks === 'Amount Mismatch').length;
   const brandNotBookedByMars = brandOut.filter((r) => r.Remarks === 'Not Booked by Mars').length;
+  const brandReversal = brandOut.filter((r) => String(r.Remarks).startsWith('Reversal')).length;
 
   const diagnostics = buildDiagnostics(
     marsRows,
@@ -272,10 +278,44 @@ export function reconcile(
       brand_match: brandMatch,
       brand_mismatch: brandMismatch,
       brand_not_booked_by_mars: brandNotBookedByMars,
+      brand_reversal: brandReversal,
     },
     diagnostics,
     options,
   };
+}
+
+function applyReversalRemarks(
+  rows: Row[],
+  invoiceRefCol: string,
+  refCol: string,
+  amtCol: string,
+): void {
+  const groups = new Map<string, number[]>();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const inv = normStr(r[invoiceRefCol]);
+    const ref = normStr(r[refCol]);
+    if (!inv || !ref) continue;
+    const k = `${inv.toUpperCase()}||${ref.toUpperCase()}`;
+    const list = groups.get(k);
+    if (list) list.push(i);
+    else groups.set(k, [i]);
+  }
+
+  for (const [, indices] of groups) {
+    if (indices.length !== 2) continue;
+    const a = rows[indices[0]];
+    const b = rows[indices[1]];
+    const amtA = toNumber(a[amtCol]);
+    const amtB = toNumber(b[amtCol]);
+    if (amtA === 0 || amtB === 0) continue;
+    if (Math.sign(amtA) === Math.sign(amtB)) continue;
+    const invRef = normStr(a[invoiceRefCol]);
+    const tag = invRef ? `Reversal ${invRef}` : 'Reversal';
+    a.Remarks = tag;
+    b.Remarks = tag;
+  }
 }
 
 function inferHeaders(rows: Row[]): string[] {

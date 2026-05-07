@@ -7,7 +7,7 @@ interface Props {
   downloading: boolean;
 }
 
-type RemarkFilter = 'all' | 'Match' | 'Amount Mismatch' | 'Not Booked by Brand' | 'Not Booked by Mars';
+type RemarkFilter = 'all' | 'Match' | 'Amount Mismatch' | 'Reversal' | 'Not Booked by Brand' | 'Not Booked by Mars';
 
 export function ResultView({ result, onDownload, downloading }: Props) {
   const { stats, summary, mars, brand } = result;
@@ -25,11 +25,12 @@ export function ResultView({ result, onDownload, downloading }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
         <Metric label="Mars Recon rows" value={stats.mars_recon_rows} />
         <Metric label="Brand Recon rows" value={stats.brand_recon_rows} />
         <Metric label="Match (Mars)" value={stats.mars_match} tone="good" />
         <Metric label="Mismatch (Mars)" value={stats.mars_mismatch} tone="warn" />
+        <Metric label="Reversal (Brand)" value={stats.brand_reversal} tone="info" />
         <Metric label="Not Booked by Brand" value={stats.mars_not_booked_by_brand} tone="warn" />
         <Metric label="Not Booked by Mars" value={stats.brand_not_booked_by_mars} tone="warn" />
       </div>
@@ -101,6 +102,7 @@ export function ResultView({ result, onDownload, downloading }: Props) {
 
 function filterRows(rows: Row[], f: RemarkFilter): Row[] {
   if (f === 'all') return rows;
+  if (f === 'Reversal') return rows.filter((r) => String(r.Remarks ?? '').startsWith('Reversal'));
   return rows.filter((r) => String(r.Remarks ?? '') === f);
 }
 
@@ -285,7 +287,7 @@ function RemarksFilter({
   const opts: RemarkFilter[] =
     side === 'mars'
       ? ['all', 'Match', 'Amount Mismatch', 'Not Booked by Brand']
-      : ['all', 'Match', 'Amount Mismatch', 'Not Booked by Mars'];
+      : ['all', 'Match', 'Amount Mismatch', 'Reversal', 'Not Booked by Mars'];
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2">
       <span className="text-xs uppercase tracking-wide text-slate-500">Filter:</span>
@@ -314,14 +316,16 @@ function Metric({
 }: {
   label: string;
   value: number;
-  tone?: 'good' | 'warn';
+  tone?: 'good' | 'warn' | 'info';
 }) {
   const ring =
     tone === 'warn' && value > 0
       ? 'ring-1 ring-amber-300'
       : tone === 'good' && value > 0
         ? 'ring-1 ring-emerald-300'
-        : '';
+        : tone === 'info' && value > 0
+          ? 'ring-1 ring-sky-300'
+          : '';
   return (
     <div className={`card ${ring}`}>
       <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
@@ -362,6 +366,7 @@ function rowClass(r: Row): string {
   if (rem.startsWith('Not Booked')) return 'bg-orange-50';
   if (rem === 'Amount Mismatch') return 'bg-yellow-50';
   if (rem === 'Match') return 'bg-emerald-50';
+  if (rem.startsWith('Reversal')) return 'bg-sky-50';
   return '';
 }
 
