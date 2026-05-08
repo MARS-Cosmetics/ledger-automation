@@ -245,6 +245,18 @@ export function reconcile(
     applyReversalRemarks(brandOut, brandInvoiceRefCol, brandRefCol, brandAmtCol);
   }
 
+  if (marsCatCol && brandCatCol) {
+    matchReceiptToPaymentByAmount(
+      marsOut,
+      brandOut,
+      marsCatCol,
+      brandCatCol,
+      marsAmtCol,
+      brandAmtCol,
+      tolerance,
+    );
+  }
+
   const summary = buildSummary(
     mars,
     brand,
@@ -295,6 +307,60 @@ export function reconcile(
     diagnostics,
     options,
   };
+}
+
+function matchReceiptToPaymentByAmount(
+  marsOut: Row[],
+  brandOut: Row[],
+  marsCatCol: string,
+  brandCatCol: string,
+  marsAmtCol: string,
+  brandAmtCol: string,
+  tolerance: number,
+): void {
+  const marsReceipts = marsOut
+    .map((r, i) => ({ r, i }))
+    .filter(
+      ({ r }) =>
+        normCatKey(canonicalizeCategory(r[marsCatCol])) === 'receipt' &&
+        r.Remarks === 'Not Booked by Brand',
+    );
+  const brandPayments = brandOut
+    .map((r, i) => ({ r, i }))
+    .filter(
+      ({ r }) =>
+        normCatKey(canonicalizeCategory(r[brandCatCol])) === 'payment' &&
+        r.Remarks === 'Not Booked by Mars',
+    );
+
+  if (marsReceipts.length === 0 || brandPayments.length === 0) return;
+
+  const claimed = new Set<number>();
+  for (const { r: marsRow } of marsReceipts) {
+    const ownAbs = Math.abs(toNumber(marsRow[marsAmtCol]));
+    let bestIdx = -1;
+    let bestDiff = Infinity;
+    for (let j = 0; j < brandPayments.length; j++) {
+      if (claimed.has(j)) continue;
+      const brandRow = brandPayments[j].r;
+      const diff = Math.abs(Math.abs(toNumber(brandRow[brandAmtCol])) - ownAbs);
+      if (diff <= tolerance && diff < bestDiff) {
+        bestDiff = diff;
+        bestIdx = j;
+      }
+    }
+    if (bestIdx === -1) continue;
+    claimed.add(bestIdx);
+    const brandRow = brandPayments[bestIdx].r;
+    const ownAmt = toNumber(marsRow[marsAmtCol]);
+    const brandAmt = toNumber(brandRow[brandAmtCol]);
+    marsRow.Amount_Brand = brandAmt;
+    marsRow.Difference = ownAmt + brandAmt;
+    marsRow.Remarks = 'Match';
+    brandRow.Amount_Mars = ownAmt;
+    brandRow.Diff = brandAmt + ownAmt;
+    brandRow.Remarks = 'Match';
+  }
 }
 
 function applyReversalRemarks(
