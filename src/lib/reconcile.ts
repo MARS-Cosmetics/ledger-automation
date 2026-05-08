@@ -31,6 +31,13 @@ const CANONICAL_NORMALIZE: Record<string, string> = {
   debitnote: 'DN',
 };
 
+// Categories that name the same thing on Mars vs Brand sides.
+// Used only for the match key, not for display / summary breakdown.
+const CATEGORY_MATCH_EQUIVALENCE: Record<string, string> = {
+  receipt: 'payment_receipt',
+  payment: 'payment_receipt',
+};
+
 export const DEFAULT_OPTIONS: ReconOptions = {
   matchMode: 'vch_and_category',
   matchToleranceRupees: 5,
@@ -51,6 +58,11 @@ function normCatKey(x: unknown): string {
   let s = normStr(x).toLowerCase().replace(/-/g, '_').replace(/\s+/g, '_');
   while (s.includes('__')) s = s.replace(/__/g, '_');
   return s;
+}
+
+function matchCatKey(x: unknown): string {
+  const k = normCatKey(x);
+  return CATEGORY_MATCH_EQUIVALENCE[k] ?? k;
 }
 
 export function canonicalizeCategory(x: unknown): string {
@@ -174,12 +186,12 @@ export function reconcile(
   const marsMatchKey = (r: Row) => {
     const v = marsVch(r);
     if (!v) return '';
-    return makeKey(v, normCatKey(marsCatRaw(r)), options.matchMode);
+    return makeKey(v, matchCatKey(marsCatRaw(r)), options.matchMode);
   };
   const brandMatchKey = (r: Row) => {
     const v = brandVch(r);
     if (!v) return '';
-    return makeKey(v, normCatKey(brandCatRaw(r)), options.matchMode);
+    return makeKey(v, matchCatKey(brandCatRaw(r)), options.matchMode);
   };
 
   const brandAgg = groupSum(brand, brandMatchKey, brandAmt, brandCatRaw);
