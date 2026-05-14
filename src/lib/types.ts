@@ -63,10 +63,40 @@ export interface ReconOptions {
   acceptBlankPeriod: boolean;
 }
 
+export interface AnnexureRow {
+  Particular: string;
+  Category: string;
+  SubCategory: string;
+  Date: string;
+  ReferenceNumber: string;
+  Amount_Mars: number;
+  Amount_Brand: number;
+  Difference: number;
+}
+
+export interface OpenPointsRow {
+  Particular: string;
+  Category: string;
+  SubCategory: string;
+  Count: number;
+  Amount_Mars: number;
+  Amount_Brand: number;
+  Difference: number;
+  AnnexureLink: string;
+  ActionOn: string;
+}
+
+export interface CategoryAnnexure {
+  category: string;
+  rows: AnnexureRow[];
+}
+
 export interface ReconResult {
   summary: SummaryRow[];
   mars: { headers: string[]; rows: Row[] };
   brand: { headers: string[]; rows: Row[] };
+  annexures: CategoryAnnexure[];
+  openPoints: OpenPointsRow[];
   stats: ReconStats;
   diagnostics: DiagnosticInfo;
   options: ReconOptions;

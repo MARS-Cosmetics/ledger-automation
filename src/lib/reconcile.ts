@@ -1,18 +1,28 @@
 import type {
+  AnnexureRow,
+  CategoryAnnexure,
   ColumnMapping,
   DiagnosticInfo,
+  OpenPointsRow,
   ReconOptions,
   ReconResult,
   Row,
   SummaryRow,
 } from './types';
 
+// Updated category order as per requirements
 export const CANONICAL_CATEGORY_ORDER = [
+  'Opening Balance',
   'Invoice',
-  'Contra_Inv',
+  'Contra Invoice',
   'CN',
-  'Contra_CN',
-  'DN',
+  'Contra CN',
+  'Receipt',
+  'Payment',
+  'Discount',
+  'Marketing Expense',
+  'RTV',
+  'Other',
 ] as const;
 
 const CANONICAL_NORMALIZE: Record<string, string> = {
@@ -289,10 +299,25 @@ export function reconcile(
     brandAmtCol,
   );
 
+  const annexures = buildAnnexures(
+    marsOut,
+    brandOut,
+    marsOutHeaders,
+    brandOutHeaders,
+    marsCols,
+    brandCols,
+    marsCatRaw,
+    brandCatRaw,
+  );
+
+  const openPoints = buildOpenPoints(annexures);
+
   return {
     summary,
     mars: { headers: marsOutHeaders, rows: marsOut },
     brand: { headers: brandOutHeaders, rows: brandOut },
+    annexures,
+    openPoints,
     stats: {
       mars_recon_rows: marsOut.length,
       brand_recon_rows: brandOut.length,
@@ -443,16 +468,33 @@ function buildSummary(
     return { Particulars: cat, Amount_Mars: m, Amount_Brand: b, Difference: m + b };
   });
 
-  const totalMars = rows.reduce((s, r) => s + r.Amount_Mars, 0);
-  const totalBrand = rows.reduce((s, r) => s + r.Amount_Brand, 0);
-  rows.push({
-    Particulars: 'Grand Total',
+  // Summary should start with Opening Balance and end with Closing Balance
+  const result: SummaryRow[] = [];
+
+  // Add opening balance if exists
+  const openingIdx = rows.findIndex((r) => r.Particulars === 'Opening Balance');
+  if (openingIdx >= 0) {
+    result.push(rows[openingIdx]);
+  }
+
+  // Add all other rows except opening and closing balance
+  for (const row of rows) {
+    if (row.Particulars !== 'Opening Balance' && row.Particulars !== 'Closing Balance') {
+      result.push(row);
+    }
+  }
+
+  const totalMars = result.reduce((s, r) => s + r.Amount_Mars, 0);
+  const totalBrand = result.reduce((s, r) => s + r.Amount_Brand, 0);
+
+  result.push({
+    Particulars: 'Closing Balance',
     Amount_Mars: totalMars,
     Amount_Brand: totalBrand,
     Difference: totalMars + totalBrand,
   });
 
-  return rows;
+  return result;
 }
 
 function buildDiagnostics(
@@ -565,4 +607,111 @@ function computeBrandColumnOverlap(
     if (overlap > 0) out.push({ column: h, overlap, nonBlank });
   }
   return out.sort((a, b) => b.overlap - a.overlap).slice(0, 6);
+}
+
+function buildAnnexures(
+  marsOut: Row[],
+  brandOut: Row[],
+  _marsHeaders: string[],
+  _brandHeaders: string[],
+  marsCols: ColumnMapping,
+  brandCols: ColumnMapping,
+  marsCatOf: (r: Row) => string,
+  _brandCatOf: (r: Row) => string,
+): CategoryAnnexure[] {
+  const marsVchCol = marsCols.vch_no;
+  const marsAmtCol = marsCols.net_amount;
+  const marsDateCol = marsCols.transaction_date || marsCols.date;
+
+  const brandRefCol = brandCols.reference;
+  const brandAmtCol = brandCols.net_amount;
+
+  // Group by category
+  const categoryMap = new Map<string, AnnexureRow[]>();
+
+  // Process Mars rows
+  for (const marsRow of marsOut) {
+    const cat = marsCatOf(marsRow) || 'Uncategorized';
+    const vch = normStr(marsRow[marsVchCol!] ?? '');
+    const date = marsDateCol ? normStr(marsRow[marsDateCol] ?? '') : '';
+    const amt = toNumber(marsRow[marsAmtCol!]);
+
+    // Find matching brand row
+    let brandAmt = 0;
+    for (const br of brandOut) {
+      if (normStr(br[brandRefCol!] ?? '').toUpperCase() === vch.toUpperCase()) {
+        brandAmt = toNumber(br[brandAmtCol!]);
+        break;
+      }
+    }
+
+    const particular = normStr(marsRow['Particular'] ?? '') || normStr(marsRow['particulars'] ?? '') || vch;
+
+    const annexureRow: AnnexureRow = {
+      Particular: particular,
+      Category: cat,
+      SubCategory: '',
+      Date: date,
+      ReferenceNumber: vch,
+      Amount_Mars: amt,
+      Amount_Brand: brandAmt,
+      Difference: amt + brandAmt,
+    };
+
+    if (!categoryMap.has(cat)) {
+      categoryMap.set(cat, []);
+    }
+    categoryMap.get(cat)!.push(annexureRow);
+  }
+
+  // Convert to CategoryAnnexure format
+  const annexures: CategoryAnnexure[] = [];
+  for (const category of CANONICAL_CATEGORY_ORDER as unknown as string[]) {
+    if (categoryMap.has(category)) {
+      annexures.push({
+        category,
+        rows: categoryMap.get(category)!,
+      });
+    }
+  }
+
+  // Add any extra categories not in canonical order
+  for (const [category, rows] of categoryMap) {
+    if (!(CANONICAL_CATEGORY_ORDER as unknown as string[]).includes(category)) {
+      annexures.push({ category, rows });
+    }
+  }
+
+  return annexures;
+}
+
+function buildOpenPoints(annexures: CategoryAnnexure[]): OpenPointsRow[] {
+  const openPoints: OpenPointsRow[] = [];
+
+  for (const annexure of annexures) {
+    const { category, rows } = annexure;
+    const totalMars = rows.reduce((sum, r) => sum + r.Amount_Mars, 0);
+    const totalBrand = rows.reduce((sum, r) => sum + r.Amount_Brand, 0);
+    const difference = totalMars + totalBrand;
+
+    // Determine if open or closed
+    const isMatched = rows.every((r) => Math.abs(r.Difference) < 0.01);
+    const action = isMatched ? 'Closed' : 'Open Point';
+
+    const openPointRow: OpenPointsRow = {
+      Particular: category,
+      Category: category,
+      SubCategory: '',
+      Count: rows.length,
+      Amount_Mars: totalMars,
+      Amount_Brand: totalBrand,
+      Difference: difference,
+      AnnexureLink: `Annexure_${category.replace(/\s+/g, '_')}`,
+      ActionOn: action,
+    };
+
+    openPoints.push(openPointRow);
+  }
+
+  return openPoints;
 }

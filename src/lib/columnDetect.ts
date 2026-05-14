@@ -26,6 +26,7 @@ export const MARS_FIELD_SYNONYMS: Record<string, string[]> = {
     'voucher',
   ],
   date: ['date', 'vch date', 'voucher date'],
+  transaction_date: ['posting date', 'document date', 'transaction date'],
   type: ['type', 'vch type', 'voucher type'],
   account: ['account', 'particulars', 'ledger', 'ledger account', 'party'],
   debit: ['debit rs', 'debit', 'dr', 'debit amount', 'debit amt'],
@@ -41,6 +42,7 @@ export const BRAND_FIELD_SYNONYMS: Record<string, string[]> = {
   alt_reference: ['document number', 'doc number', 'doc no', 'assignment'],
   invoice_ref: ['invoice reference', 'invoice ref', 'inv ref', 'inv reference'],
   net_amount: ['net amount', 'net amt', 'amount in local currency', 'amount local', 'amount', 'amt'],
+  transaction_date: ['posting date', 'document date', 'date', 'transaction date'],
   period: ['period'],
   category: ['category', 'cat', 'type of voucher', 'voucher category'],
 };
@@ -60,6 +62,7 @@ export const FIELD_LABELS: Record<string, string> = {
   period: 'Period',
   category: 'Category',
   date: 'Date',
+  transaction_date: 'Transaction Date',
   type: 'Type',
   account: 'Account',
   debit: 'Debit',
@@ -75,6 +78,12 @@ export const FIELD_HINTS: Record<string, string> = {
   net_amount: 'The signed rupee amount used for amount comparison. On Brand SAP exports this is often "Amount in local currency".',
   period: 'Used to filter rows. Only rows with Period = "Recon" enter the reconciliation.',
   category: 'Used in the match key when "Vch + Category" mode is selected, and in the Recon Summary breakdown.',
+  transaction_date: 'Transaction date for date-based matching and annexure display.',
+  date: 'Date of transaction.',
+  type: 'Type of transaction.',
+  account: 'Account or Ledger name.',
+  debit: 'Debit amount.',
+  credit: 'Credit amount.',
 };
 
 function score(headerNorm: string, candidate: string): number {
