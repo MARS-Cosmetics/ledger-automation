@@ -25,20 +25,15 @@ const ANNEX_HEADERS = [
   'Difference',
 ] as const;
 
-// Fixed 8-column layout for per-category annexure sheets (Sheets 5+)
-const ANNEXURE_HEADERS = [
-  'Particulars',
-  'Category',
-  'Sub-Category',
-  'Date',
-  'Invoice/Voucher No',
-  'Amount Mars',
-  'Amount Brand',
-  'Difference',
-] as const;
-
 // Canonical display order for category sections
 const CAT_ORDER = ['Opening Balance', 'Invoice', 'Contra_Inv', 'CN', 'Contra_CN', 'DN'];
+
+// Categories that should be merged into one section in the Annex sheet.
+// label  → displayed as the section title
+// cats   → ordered list: first category's rows appear before second category's rows
+const ANNEX_MERGED_GROUPS: { label: string; cats: string[] }[] = [
+  { label: 'Invoice & Contra Invoice', cats: ['Invoice', 'Contra_Inv'] },
+];
 
 
 // ── public API ────────────────────────────────────────────────────────────────
@@ -50,11 +45,10 @@ export async function buildReconWorkbook(
   wb.creator = 'Mars Recon Tool';
   wb.created = generatedAt;
 
-  writeSummary(wb, res, generatedAt);                        // Sheet 1
+  writeSummary(wb, res, generatedAt);                                      // Sheet 1
   writeDataSheet(wb, 'Mars Cosmetics', res.mars.headers, res.mars.rows); // Sheet 2
   writeDataSheet(wb, 'Brand', res.brand.headers, res.brand.rows);        // Sheet 3
-  writeAnnexSheet(wb, res);                                  // Sheet 4
-  writeAllAnnexures(wb, res);                                // Sheets 5+
+  writeAnnexSheet(wb, res);                                               // Sheet 4
 
   const buf = await wb.xlsx.writeBuffer();
   return buf as ArrayBuffer;
@@ -77,14 +71,16 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
 
   if (!marsVchCol || !marsAmtCol || !brandRefCol || !brandAmtCol) return;
 
-  // Collect all distinct categories from both sides
+  // Collect all distinct categories from both sides, excluding Opening Balance
   const catSet = new Set<string>();
   for (const r of res.mars.rows) {
-    catSet.add(normCat(marsCatCol ? String(r[marsCatCol] ?? '') : ''));
+    const cat = normCat(marsCatCol ? String(r[marsCatCol] ?? '') : '');
+    if (cat !== 'Opening Balance') catSet.add(cat);
   }
   for (const r of res.brand.rows) {
     if (toNum(r['Amount_Mars']) !== 0) continue;
-    catSet.add(normCat(brandCatCol ? String(r[brandCatCol] ?? '') : ''));
+    const cat = normCat(brandCatCol ? String(r[brandCatCol] ?? '') : '');
+    if (cat !== 'Opening Balance') catSet.add(cat);
   }
 
   const cats = [...catSet].sort((a, b) => {
@@ -99,44 +95,50 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
   const ws = wb.addWorksheet('Annex');
   const ncols = ANNEX_HEADERS.length;
 
-  for (const cat of cats) {
+  // Helper: collect Annex rows for an ordered list of category names.
+  // Rows are emitted category by category in the given order —
+  // all rows for cats[0] first, then all rows for cats[1], etc.
+  // Particular column shows the raw ledger value, not any merged label.
+  const collectRows = (orderedCats: string[]): Row[] => {
     const rows: Row[] = [];
-
-    // All Mars rows for this category
-    for (const r of res.mars.rows) {
-      if (normCat(marsCatCol ? String(r[marsCatCol] ?? '') : '') !== cat) continue;
-      rows.push({
-        'Particular':    cat,
-        'Category':      String(r['Remarks'] ?? ''),
-        'Sub-Category':  '',
-        'Date':          marsDateCol ? (r[marsDateCol] ?? null) : null,
-        'Invoice No':    String(r[marsVchCol] ?? ''),
-        'Amount_MARS':   toNum(r[marsAmtCol]),
-        'Amount_Brand':  toNum(r['Amount_Brand']),
-        'Difference':    toNum(r['Difference']),
-      });
+    for (const cat of orderedCats) {
+      for (const r of res.mars.rows) {
+        const rawCat = marsCatCol ? String(r[marsCatCol] ?? '') : '';
+        if (normCat(rawCat) !== cat) continue;
+        rows.push({
+          'Particular':    rawCat,
+          'Category':      String(r['Remarks'] ?? ''),
+          'Sub-Category':  '',
+          'Date':          marsDateCol ? (r[marsDateCol] ?? null) : null,
+          'Invoice No':    String(r[marsVchCol] ?? ''),
+          'Amount_MARS':   toNum(r[marsAmtCol]),
+          'Amount_Brand':  toNum(r['Amount_Brand']),
+          'Difference':    toNum(r['Difference']),
+        });
+      }
+      for (const r of res.brand.rows) {
+        if (toNum(r['Amount_Mars']) !== 0) continue;
+        const rawCat = brandCatCol ? String(r[brandCatCol] ?? '') : '';
+        if (normCat(rawCat) !== cat) continue;
+        rows.push({
+          'Particular':    rawCat,
+          'Category':      String(r['Remarks'] ?? ''),
+          'Sub-Category':  '',
+          'Date':          brandDateCol ? (r[brandDateCol] ?? null) : null,
+          'Invoice No':    String(r[brandRefCol] ?? ''),
+          'Amount_MARS':   0,
+          'Amount_Brand':  toNum(r[brandAmtCol]),
+          'Difference':    toNum(r['Diff']),
+        });
+      }
     }
+    return rows;
+  };
 
-    // Brand rows with no Mars counterpart (Amount_Mars = 0)
-    for (const r of res.brand.rows) {
-      if (toNum(r['Amount_Mars']) !== 0) continue;
-      if (normCat(brandCatCol ? String(r[brandCatCol] ?? '') : '') !== cat) continue;
-      rows.push({
-        'Particular':    cat,
-        'Category':      String(r['Remarks'] ?? ''),
-        'Sub-Category':  '',
-        'Date':          brandDateCol ? (r[brandDateCol] ?? null) : null,
-        'Invoice No':    String(r[brandRefCol] ?? ''),
-        'Amount_MARS':   0,
-        'Amount_Brand':  toNum(r[brandAmtCol]),
-        'Difference':    toNum(r['Diff']),
-      });
-    }
-
-    if (rows.length === 0) continue;
-
-    // Category title bar (dark navy)
-    const titleRow = ws.addRow([cat]);
+  // Helper: write a titled section into the sheet
+  const writeSection = (label: string, rows: Row[]) => {
+    if (rows.length === 0) return;
+    const titleRow = ws.addRow([label]);
     titleRow.height = 22;
     ws.mergeCells(titleRow.number, 1, titleRow.number, ncols);
     for (let c = 1; c <= ncols; c++) {
@@ -145,12 +147,8 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
       cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
       cell.alignment = { vertical: 'middle' };
     }
-
-    // Column header row
     const hRow = ws.addRow([...ANNEX_HEADERS]);
     styleHeader(hRow);
-
-    // Data rows
     for (const r of rows) {
       const values = ANNEX_HEADERS.map((h) => normalizeForCell(r[h]));
       const row = ws.addRow(values);
@@ -158,126 +156,32 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
       const fill = remarkFill(String(r['Category'] ?? ''));
       if (fill) row.eachCell((cell) => { cell.fill = fill; });
     }
+    ws.addRow([]);
+    ws.addRow([]);
+  };
 
-    ws.addRow([]);
-    ws.addRow([]);
+  // Track which individual cats have already been handled via a merged group
+  const handledCats = new Set<string>();
+
+  for (const cat of cats) {
+    if (handledCats.has(cat)) continue;
+
+    const mergedGroup = ANNEX_MERGED_GROUPS.find((g) => g.cats.includes(cat));
+
+    if (mergedGroup) {
+      // Mark all cats in this group so they are not written individually later
+      mergedGroup.cats.forEach((c) => handledCats.add(c));
+      // collectRows respects the group order: Invoice rows first, Contra_Inv rows after
+      writeSection(mergedGroup.label, collectRows(mergedGroup.cats));
+    } else {
+      writeSection(cat, collectRows([cat]));
+    }
   }
 
   // Column widths
   [20, 32, 16, 14, 32, 18, 18, 16].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 }
 
-// ── Sheets 5+: per-category annexure tabs ────────────────────────────────────
-function writeAllAnnexures(wb: ExcelJS.Workbook, res: ReconResult): void {
-  const mc = res.marsCols;
-  const bc = res.brandCols;
-
-  const marsVchCol  = mc.vch_no;
-  const marsAmtCol  = mc.net_amount;
-  const marsCatCol  = mc.category;
-  const marsDateCol = mc.date;
-
-  const brandRefCol  = bc.reference;
-  const brandAmtCol  = bc.net_amount;
-  const brandCatCol  = bc.category;
-  const brandDateCol = bc.date;
-
-  if (!marsVchCol || !marsAmtCol || !brandRefCol || !brandAmtCol) return;
-
-  // ── Collect distinct canonical categories ──
-  const catSet = new Set<string>();
-
-  for (const r of res.mars.rows) {
-    catSet.add(normCat(marsCatCol ? String(r[marsCatCol] ?? '') : ''));
-  }
-  for (const r of res.brand.rows) {
-    if (toNum(r['Amount_Mars']) !== 0) continue;
-    catSet.add(normCat(brandCatCol ? String(r[brandCatCol] ?? '') : ''));
-  }
-
-  // Sort: canonical order first, then alphabetical
-  const cats = [...catSet].sort((a, b) => {
-    const ia = CAT_ORDER.indexOf(a);
-    const ib = CAT_ORDER.indexOf(b);
-    if (ia !== -1 && ib !== -1) return ia - ib;
-    if (ia !== -1) return -1;
-    if (ib !== -1) return 1;
-    return a.localeCompare(b);
-  });
-
-  // ── One sheet per category, all inside the same workbook ──
-  let annexNum = 1;
-
-  for (const cat of cats) {
-    const rows: Row[] = [];
-
-    for (const r of res.mars.rows) {
-      if (normCat(marsCatCol ? String(r[marsCatCol] ?? '') : '') !== cat) continue;
-      rows.push({
-        'Particulars':        cat,
-        'Category':           String(r['Remarks'] ?? ''),
-        'Sub-Category':       '',
-        'Date':               marsDateCol ? (r[marsDateCol] ?? null) : null,
-        'Invoice/Voucher No': String(r[marsVchCol] ?? ''),
-        'Amount Mars':        toNum(r[marsAmtCol]),
-        'Amount Brand':       toNum(r['Amount_Brand']),
-        'Difference':         toNum(r['Difference']),
-      });
-    }
-
-    for (const r of res.brand.rows) {
-      if (toNum(r['Amount_Mars']) !== 0) continue;
-      if (normCat(brandCatCol ? String(r[brandCatCol] ?? '') : '') !== cat) continue;
-      rows.push({
-        'Particulars':        cat,
-        'Category':           String(r['Remarks'] ?? ''),
-        'Sub-Category':       '',
-        'Date':               brandDateCol ? (r[brandDateCol] ?? null) : null,
-        'Invoice/Voucher No': String(r[brandRefCol] ?? ''),
-        'Amount Mars':        0,
-        'Amount Brand':       toNum(r[brandAmtCol]),
-        'Difference':         toNum(r['Diff']),
-      });
-    }
-
-    if (rows.length === 0) continue;
-
-    // Create a sheet named after the category (max 31 chars, no special chars)
-    const sheetName = cat.replace(/[/\\?*[\]]/g, '-').slice(0, 31);
-    const ws = wb.addWorksheet(sheetName);
-    const ncols = ANNEXURE_HEADERS.length;
-
-    // Title row
-    const titleRow = ws.addRow([`Annexure ${annexNum++} — ${cat}  (${rows.length} entries)`]);
-    titleRow.height = 26;
-    ws.mergeCells(titleRow.number, 1, titleRow.number, ncols);
-    for (let c = 1; c <= ncols; c++) {
-      const cell = titleRow.getCell(c);
-      cell.fill = TITLE_FILL;
-      cell.font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } };
-      cell.alignment = { vertical: 'middle' };
-    }
-
-    ws.addRow([]); // spacer
-
-    // Column headers
-    const hRow = ws.addRow([...ANNEXURE_HEADERS]);
-    styleHeader(hRow);
-
-    // Data rows
-    for (const r of rows) {
-      const values = ANNEXURE_HEADERS.map((h) => normalizeForCell(r[h]));
-      const row = ws.addRow(values);
-      for (const c of [6, 7, 8]) row.getCell(c).numFmt = MONEY_FMT;
-      const fill = remarkFill(String(r['Category'] ?? ''));
-      if (fill) row.eachCell((cell) => { cell.fill = fill; });
-    }
-
-    // Column widths
-    const widths = [20, 32, 16, 14, 32, 18, 18, 16];
-    widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
-  }
-}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function normCat(raw: string): string {
