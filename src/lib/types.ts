@@ -70,4 +70,6 @@ export interface ReconResult {
   stats: ReconStats;
   diagnostics: DiagnosticInfo;
   options: ReconOptions;
+  marsCols: ColumnMapping;
+  brandCols: ColumnMapping;
 }

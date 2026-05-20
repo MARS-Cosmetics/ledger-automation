@@ -314,11 +314,12 @@ export function reconcile(
     );
   }
 
-  if (marsCorrectRefCol && brandCorrectRefCol) {
+  if (marsCorrectRefCol) {
     applyCorrectRefMatching(
       marsOut,
       brandOut,
       marsCorrectRefCol,
+      brandRefCol,
       brandCorrectRefCol,
       marsAmtCol,
       brandAmtCol,
@@ -373,6 +374,8 @@ export function reconcile(
     summary,
     mars: { headers: marsOutHeaders, rows: marsOut },
     brand: { headers: brandOutHeaders, rows: brandOut },
+    marsCols,
+    brandCols,
     stats: {
       mars_recon_rows: marsOut.length,
       brand_recon_rows: brandOut.length,
@@ -447,27 +450,35 @@ function applyCorrectRefMatching(
   marsOut: Row[],
   brandOut: Row[],
   marsCorrectRefCol: string,
-  brandCorrectRefCol: string,
+  brandRefCol: string,
+  brandCorrectRefCol: string | undefined,
   marsAmtCol: string,
   brandAmtCol: string,
   tolerance: number,
 ): void {
-  // Index Brand "Not Booked by Mars" rows by their Correct Ref No
-  const brandByCorrectRef = new Map<string, number>();
+  // Index Brand "Not Booked by Mars" rows by their primary reference first,
+  // then also by their correct_ref (if mapped) as a secondary key.
+  // This lets Mars's Correct Ref No resolve against Brand's primary Reference.
+  const brandByRef = new Map<string, number>();
   for (let i = 0; i < brandOut.length; i++) {
     if (brandOut[i].Remarks !== 'Not Booked by Mars') continue;
-    const ref = normKey(brandOut[i][brandCorrectRefCol]);
-    if (ref && !brandByCorrectRef.has(ref)) brandByCorrectRef.set(ref, i);
+    const primary = normKey(brandOut[i][brandRefCol]);
+    if (primary && !brandByRef.has(primary)) brandByRef.set(primary, i);
+    if (brandCorrectRefCol) {
+      const correct = normKey(brandOut[i][brandCorrectRefCol]);
+      if (correct && !brandByRef.has(correct)) brandByRef.set(correct, i);
+    }
   }
 
-  // Match Mars "Not Booked in Brands Ledger" rows: Mars Correct Ref No → Brand Correct Ref No
+  const claimed = new Set<number>();
   for (const marsRow of marsOut) {
     if (marsRow.Remarks !== 'Not Booked in Brands Ledger') continue;
     const ref = normKey(marsRow[marsCorrectRefCol]);
     if (!ref) continue;
-    const brandIdx = brandByCorrectRef.get(ref);
-    if (brandIdx === undefined) continue;
+    const brandIdx = brandByRef.get(ref);
+    if (brandIdx === undefined || claimed.has(brandIdx)) continue;
 
+    claimed.add(brandIdx);
     const brandRow = brandOut[brandIdx];
     const ma = toNumber(marsRow[marsAmtCol]);
     const ba = toNumber(brandRow[brandAmtCol]);
@@ -479,8 +490,6 @@ function applyCorrectRefMatching(
     brandRow.Amount_Mars = ma;
     brandRow.Diff = ba + ma;
     brandRow.Remarks = remark;
-
-    brandByCorrectRef.delete(ref);
   }
 }
 

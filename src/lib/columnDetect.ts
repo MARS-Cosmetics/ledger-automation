@@ -42,6 +42,7 @@ export const BRAND_FIELD_SYNONYMS: Record<string, string[]> = {
   alt_reference: ['document number', 'doc number', 'doc no', 'assignment'],
   invoice_ref: ['invoice reference', 'invoice ref', 'inv ref', 'inv reference'],
   net_amount: ['net amount', 'net amt', 'amount in local currency', 'amount local', 'amount', 'amt'],
+  date: ['posting date', 'document date', 'date', 'pstng date', 'doc date'],
   period: ['period'],
   category: ['category', 'cat', 'type of voucher', 'voucher category'],
 };
