@@ -47,6 +47,14 @@ const CATEGORY_MATCH_EQUIVALENCE: Record<string, string> = {
   payment: 'payment_receipt',
 };
 
+// Categories that must never match across category boundaries,
+// regardless of the matchMode setting.
+const ISOLATED_CATEGORIES = new Set<string>(['marketing_exp', 'advance_adjustment']);
+
+function isIsolatedCategory(canonicalCat: string): boolean {
+  return ISOLATED_CATEGORIES.has(normCatKey(canonicalCat));
+}
+
 export const DEFAULT_OPTIONS: ReconOptions = {
   matchMode: 'vch_and_category',
   matchToleranceRupees: 5,
@@ -217,12 +225,16 @@ export function reconcile(
   const marsMatchKey = (r: Row) => {
     const v = marsVch(r);
     if (!v) return '';
-    return makeKey(v, matchCatKey(marsCatRaw(r)), options.matchMode);
+    const cat = marsCatRaw(r);
+    const mode = isIsolatedCategory(cat) ? 'vch_and_category' : options.matchMode;
+    return makeKey(v, matchCatKey(cat), mode);
   };
   const brandMatchKey = (r: Row) => {
     const v = brandVch(r);
     if (!v) return '';
-    return makeKey(v, matchCatKey(brandCatRaw(r)), options.matchMode);
+    const cat = brandCatRaw(r);
+    const mode = isIsolatedCategory(cat) ? 'vch_and_category' : options.matchMode;
+    return makeKey(v, matchCatKey(cat), mode);
   };
 
   const isMarsOB = (r: Row) =>
@@ -324,6 +336,8 @@ export function reconcile(
       marsAmtCol,
       brandAmtCol,
       tolerance,
+      marsCatCol,
+      brandCatCol,
     );
   }
 
@@ -455,6 +469,8 @@ function applyCorrectRefMatching(
   marsAmtCol: string,
   brandAmtCol: string,
   tolerance: number,
+  marsCatCol: string | undefined,
+  brandCatCol: string | undefined,
 ): void {
   // Index Brand "Not Booked by Mars" rows by their primary reference first,
   // then also by their correct_ref (if mapped) as a secondary key.
@@ -477,6 +493,16 @@ function applyCorrectRefMatching(
     if (!ref) continue;
     const brandIdx = brandByRef.get(ref);
     if (brandIdx === undefined || claimed.has(brandIdx)) continue;
+
+    // Never cross-match isolated categories (e.g. Marketing Exp must only match Marketing Exp)
+    if (marsCatCol && brandCatCol) {
+      const marsCat = canonicalizeCategory(marsRow[marsCatCol]);
+      const brandCat = canonicalizeCategory(brandOut[brandIdx][brandCatCol]);
+      if (
+        (isIsolatedCategory(marsCat) || isIsolatedCategory(brandCat)) &&
+        normCatKey(marsCat) !== normCatKey(brandCat)
+      ) continue;
+    }
 
     claimed.add(brandIdx);
     const brandRow = brandOut[brandIdx];
