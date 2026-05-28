@@ -43,20 +43,31 @@ function parseSheet(ws: ExcelJS.Worksheet): Sheet {
 function extractCellValue(cell: ExcelJS.Cell): Cell {
   const v = cell.value;
   if (v === null || v === undefined) return null;
-  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return v;
+  if (typeof v === 'string') return v.trim() === '' ? null : v;
+  if (typeof v === 'number' || typeof v === 'boolean') return v;
   if (v instanceof Date) return v;
   if (typeof v === 'object') {
-    if ('text' in v && typeof (v as { text: unknown }).text === 'string') {
-      return (v as { text: string }).text;
+    // Formula error cell: { error: '#VALUE!' } etc.
+    if ('error' in v) return null;
+    // Rich text
+    if ('richText' in v && Array.isArray((v as { richText: unknown }).richText)) {
+      const text = (v as { richText: { text: string }[] }).richText.map((p) => p.text).join('').trim();
+      return text === '' ? null : text;
     }
+    // Hyperlink / formula with text
+    if ('text' in v && typeof (v as { text: unknown }).text === 'string') {
+      const text = (v as { text: string }).text.trim();
+      return text === '' ? null : text;
+    }
+    // Formula result
     if ('result' in v) {
       const r = (v as { result: unknown }).result;
       if (r === null || r === undefined) return null;
-      if (typeof r === 'string' || typeof r === 'number' || typeof r === 'boolean') return r;
+      if (typeof r === 'string') return r.trim() === '' ? null : r;
+      if (typeof r === 'number' || typeof r === 'boolean') return r;
       if (r instanceof Date) return r;
-    }
-    if ('richText' in v && Array.isArray((v as { richText: unknown }).richText)) {
-      return (v as { richText: { text: string }[] }).richText.map((p) => p.text).join('');
+      // Formula error in result
+      if (typeof r === 'object' && r !== null && 'error' in r) return null;
     }
   }
   return String(v);
@@ -67,15 +78,25 @@ function isBlankRow(r: Cell[]): boolean {
 }
 
 function pickHeaderRow(rows: Cell[][]): number {
-  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+  const limit = Math.min(rows.length, 20);
+
+  // Pass 1: row where every non-blank cell is a string — strongest signal for a header row
+  // (real data rows always contain at least one number or date)
+  for (let i = 0; i < limit; i++) {
     const r = rows[i];
     if (!r) continue;
     const nonBlank = r.filter((c) => c !== null && c !== undefined && String(c).trim() !== '');
-    if (nonBlank.length >= 3) {
-      const allText = nonBlank.every((c) => typeof c === 'string' || typeof c === 'number');
-      if (allText) return i;
-    }
+    if (nonBlank.length >= 3 && nonBlank.every((c) => typeof c === 'string')) return i;
   }
+
+  // Pass 2: first row with ≥2 non-blank scalar cells (catches edge cases like numeric column headers)
+  for (let i = 0; i < limit; i++) {
+    const r = rows[i];
+    if (!r) continue;
+    const nonBlank = r.filter((c) => c !== null && c !== undefined && String(c).trim() !== '');
+    if (nonBlank.length >= 2 && nonBlank.every((c) => typeof c === 'string' || typeof c === 'number')) return i;
+  }
+
   return 0;
 }
 

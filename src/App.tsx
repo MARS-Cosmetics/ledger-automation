@@ -5,7 +5,6 @@ import { ResultView } from './components/ResultView';
 import { SheetPicker } from './components/SheetPicker';
 import {
   BRAND_FIELD_SYNONYMS,
-  HIDDEN_FIELDS,
   MARS_FIELD_SYNONYMS,
   REQUIRED_BRAND,
   REQUIRED_MARS,
@@ -207,7 +206,7 @@ export default function App() {
               <ColumnMapper
                 title="Mars ledger"
                 headers={marsSheet.headers}
-                fields={Object.keys(MARS_FIELD_SYNONYMS).filter((f) => !HIDDEN_FIELDS.has(f))}
+                fields={Object.keys(MARS_FIELD_SYNONYMS)}
                 required={REQUIRED_MARS}
                 mapping={mars.mapping}
                 onChange={(m) => setMars((s) => ({ ...s, mapping: m }))}
@@ -217,7 +216,7 @@ export default function App() {
               <ColumnMapper
                 title="Brand ledger"
                 headers={brandSheet.headers}
-                fields={Object.keys(BRAND_FIELD_SYNONYMS).filter((f) => !HIDDEN_FIELDS.has(f))}
+                fields={Object.keys(BRAND_FIELD_SYNONYMS)}
                 required={REQUIRED_BRAND}
                 mapping={brand.mapping}
                 onChange={(m) => setBrand((s) => ({ ...s, mapping: m }))}

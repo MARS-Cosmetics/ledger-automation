@@ -5,10 +5,11 @@ import type { ReconResult, Row } from './types';
 const MONEY_FMT = '#,##,##0.00;(#,##,##0.00);"-"';
 const BASE_FONT = { name: 'Calibri', size: 9 } as const;
 const THIN_BORDER: ExcelJS.Borders = {
-  top:    { style: 'thin' },
-  left:   { style: 'thin' },
-  bottom: { style: 'thin' },
-  right:  { style: 'thin' },
+  top:      { style: 'thin' },
+  left:     { style: 'thin' },
+  bottom:   { style: 'thin' },
+  right:    { style: 'thin' },
+  diagonal: {},
 };
 
 // Columns for the combined "Annex" sheet (Sheet 4) — exact names as specified
