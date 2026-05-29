@@ -155,14 +155,27 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
   };
 
   // Helper: write a titled section into the sheet
+  // ANNEX_HEADERS col positions: 6=Amount_MARS(F), 7=Amount_Brand(G), 8=Difference(H)
+  let annexNum = 0;
   const writeSection = (label: string, rows: Row[]) => {
     if (rows.length === 0) return;
-    const titleRow = ws.addRow([label]);
+    annexNum++;
+
+    // Pre-compute data row range: title(+1) + header(+1) = first data at titleRow+2
+    const titleRowNum  = ws.rowCount + 1;
+    const firstDataRow = titleRowNum + 2;
+    const lastDataRow  = titleRowNum + 1 + rows.length;
+
+    const titleRow = ws.addRow([`Annex ${annexNum} – ${label}`]);
     titleRow.height = 18;
-    ws.mergeCells(titleRow.number, 1, titleRow.number, ncols);
     titleRow.font = { ...BASE_FONT, bold: true };
     titleRow.alignment = { vertical: 'middle' };
+    titleRow.getCell(6).value = { formula: `=SUM(F${firstDataRow}:F${lastDataRow})` };
+    titleRow.getCell(7).value = { formula: `=SUM(G${firstDataRow}:G${lastDataRow})` };
+    titleRow.getCell(8).value = { formula: `=SUM(H${firstDataRow}:H${lastDataRow})` };
+    for (const c of [6, 7, 8]) titleRow.getCell(c).numFmt = MONEY_FMT;
     borderRow(titleRow, ncols);
+
     const hRow = ws.addRow([...ANNEX_HEADERS]);
     styleHeader(hRow, ncols);
     for (const r of rows) {
@@ -235,7 +248,8 @@ function writeOpenPointsSummary(wb: ExcelJS.Workbook, res: ReconResult): void {
   const handledCats = new Set<string>();
   const seenKeys = new Set<string>(); // "canonCat||remark"
 
-  const collectPairs = (orderedCats: string[], annexureLabel: string): void => {
+  let opsAnnexNum = 0;
+  const collectPairs = (orderedCats: string[], baseLabel: string): void => {
     const temp: SummaryPair[] = [];
     for (const cat of orderedCats) {
       for (const r of res.mars.rows) {
@@ -243,7 +257,7 @@ function writeOpenPointsSummary(wb: ExcelJS.Workbook, res: ReconResult): void {
         if (normCat(rawCat) !== cat) continue;
         const remark = String(r['Remarks'] ?? '');
         const key = `${cat}||${remark}`;
-        if (!seenKeys.has(key)) { seenKeys.add(key); temp.push({ canonCat: cat, remark, annexureLabel }); }
+        if (!seenKeys.has(key)) { seenKeys.add(key); temp.push({ canonCat: cat, remark, annexureLabel: '' }); }
       }
       for (const r of res.brand.rows) {
         if (toNum(r['Amount_Mars']) !== 0) continue;
@@ -251,11 +265,14 @@ function writeOpenPointsSummary(wb: ExcelJS.Workbook, res: ReconResult): void {
         if (normCat(rawCat) !== cat) continue;
         const remark = String(r['Remarks'] ?? '');
         const key = `${cat}||${remark}`;
-        if (!seenKeys.has(key)) { seenKeys.add(key); temp.push({ canonCat: cat, remark, annexureLabel }); }
+        if (!seenKeys.has(key)) { seenKeys.add(key); temp.push({ canonCat: cat, remark, annexureLabel: '' }); }
       }
     }
+    if (temp.length === 0) return;
     temp.sort((a, b) => remarkSortOrder(a.remark) - remarkSortOrder(b.remark));
-    pairs.push(...temp);
+    opsAnnexNum++;
+    const annexureLabel = `Annex ${opsAnnexNum} – ${baseLabel}`;
+    pairs.push(...temp.map((p) => ({ ...p, annexureLabel })));
   };
 
   for (const cat of cats) {
@@ -290,9 +307,11 @@ function writeOpenPointsSummary(wb: ExcelJS.Workbook, res: ReconResult): void {
 
   // Data rows — Count/Amount columns use COUNTIFS/SUMIFS referencing the Annex sheet
   // Annex col F = Amount_MARS, col G = Amount_Brand  (positions defined in ANNEX_HEADERS)
+  let firstDataRow = 0;
   for (const { canonCat, remark, annexureLabel } of pairs) {
     const row = ws.addRow([]);
     const rn = row.number;
+    if (firstDataRow === 0) firstDataRow = rn;
     row.font = BASE_FONT;
     borderRow(row, ncols);
 
@@ -308,6 +327,17 @@ function writeOpenPointsSummary(wb: ExcelJS.Workbook, res: ReconResult): void {
 
     for (const c of [5, 6, 7]) row.getCell(c).numFmt = MONEY_FMT;
   }
+
+  // Total row
+  const lastDataRow = ws.rowCount;
+  const totalRow = ws.addRow([]);
+  totalRow.font = { ...BASE_FONT, bold: true };
+  borderRow(totalRow, ncols);
+  totalRow.getCell(1).value = 'Total';
+  totalRow.getCell(5).value = { formula: `=SUM(E${firstDataRow}:E${lastDataRow})` };
+  totalRow.getCell(6).value = { formula: `=SUM(F${firstDataRow}:F${lastDataRow})` };
+  totalRow.getCell(7).value = { formula: `=SUM(G${firstDataRow}:G${lastDataRow})` };
+  for (const c of [5, 6, 7]) totalRow.getCell(c).numFmt = MONEY_FMT;
 
   // Column widths
   [22, 30, 14, 10, 18, 18, 16, 28, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
