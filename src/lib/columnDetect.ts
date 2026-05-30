@@ -55,6 +55,18 @@ export const MARS_FIELD_SYNONYMS: Record<string, string[]> = {
   debit: ['debit rs', 'debit', 'dr', 'debit amount', 'debit amt', 'debit rs.'],
   credit: ['credit rs', 'credit', 'cr', 'credit amount', 'credit amt', 'credit rs.'],
   correct_ref: ['correct ref no', 'correct reference', 'corrected ref', 'manual ref', 'correct ref'],
+  po_number: [
+    'po number',
+    'po no',
+    'po no.',
+    'purchase order',
+    'purchase order no',
+    'purchase order number',
+    'order no',
+    'order number',
+    'po ref',
+    'po',
+  ],
   net_amount: [
     'net amount',
     'net amt',
@@ -102,6 +114,18 @@ export const BRAND_FIELD_SYNONYMS: Record<string, string[]> = {
     'trans ref',
   ],
   correct_ref: ['correct ref no', 'correct reference', 'corrected ref', 'manual ref', 'correct ref'],
+  po_number: [
+    'po number',
+    'po no',
+    'po no.',
+    'purchase order',
+    'purchase order no',
+    'purchase order number',
+    'order no',
+    'order number',
+    'po ref',
+    'po',
+  ],
   alt_reference: [
     'document number',
     'doc number',
@@ -175,6 +199,7 @@ export const FIELD_LABELS: Record<string, string> = {
   account: 'Account',
   debit: 'Debit',
   credit: 'Credit',
+  po_number: 'PO Number',
 };
 
 export const FIELD_HINTS: Record<string, string> = {
@@ -186,6 +211,7 @@ export const FIELD_HINTS: Record<string, string> = {
   net_amount: 'The signed rupee amount used for amount comparison. On Brand SAP exports this is often "Amount in local currency".',
   period: 'Used to filter rows. Only rows with Period = "Recon" enter the reconciliation.',
   category: 'Used in the match key when "Vch + Category" mode is selected, and in the Recon Summary breakdown.',
+  po_number: 'Optional — Purchase Order number linked to each voucher. Shown as a separate column in the Annex sheet.',
 };
 
 function score(headerNorm: string, candidate: string): number {

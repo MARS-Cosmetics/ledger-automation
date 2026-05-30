@@ -22,6 +22,8 @@ const ANNEX_HEADERS = [
   'Amount_MARS',
   'Amount_Brand',
   'Difference',
+  'Reference',
+  'PO Number',
 ] as const;
 
 // Columns for the "Open Points Summary" sheet (Sheet 5)
@@ -72,15 +74,19 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
   const mc = res.marsCols;
   const bc = res.brandCols;
 
-  const marsVchCol  = mc.vch_no;
-  const marsAmtCol  = mc.net_amount;
-  const marsCatCol  = mc.category;
-  const marsDateCol = mc.date;
+  const marsVchCol        = mc.vch_no;
+  const marsAmtCol        = mc.net_amount;
+  const marsCatCol        = mc.category;
+  const marsDateCol       = mc.date;
+  const marsCorrectRefCol = mc.correct_ref;
+  const marsPOCol         = mc.po_number;
 
-  const brandRefCol  = bc.reference;
-  const brandAmtCol  = bc.net_amount;
-  const brandCatCol  = bc.category;
-  const brandDateCol = bc.date;
+  const brandRefCol        = bc.reference;
+  const brandAmtCol        = bc.net_amount;
+  const brandCatCol        = bc.category;
+  const brandDateCol       = bc.date;
+  const brandCorrectRefCol = bc.correct_ref;
+  const brandPOCol         = bc.po_number;
 
   if (!marsVchCol || !marsAmtCol || !brandRefCol || !brandAmtCol) return;
 
@@ -108,6 +114,24 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
   const ws = wb.addWorksheet('Annex');
   const ncols = ANNEX_HEADERS.length;
 
+  // Build PO → Mars invoice map.
+  // Only include entries where the PO column is DIFFERENT from the Vch column.
+  // If the user mapped the same column to both fields, every value would map to itself
+  // and every brand reference would be wrongly treated as a PO.
+  const poToMarsInvoice = new Map<string, string>();
+  for (const r of res.mars.rows) {
+    const inv = marsVchCol ? String(r[marsVchCol] ?? '').trim() : '';
+    if (!inv) continue;
+    if (marsPOCol && marsPOCol !== marsVchCol) {
+      const po = String(r[marsPOCol] ?? '').trim();
+      if (po) poToMarsInvoice.set(po.toUpperCase(), inv);
+    }
+    if (marsCorrectRefCol && marsCorrectRefCol !== marsVchCol) {
+      const ref = String(r[marsCorrectRefCol] ?? '').trim();
+      if (ref) poToMarsInvoice.set(ref.toUpperCase(), inv);
+    }
+  }
+
   // Helper: collect Annex rows for an ordered list of category names.
   // Rows are emitted category by category in the given order —
   // all rows for cats[0] first, then all rows for cats[1], etc.
@@ -120,6 +144,11 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
       for (const r of res.mars.rows) {
         const rawCat = marsCatCol ? String(r[marsCatCol] ?? '') : '';
         if (normCat(rawCat) !== cat) continue;
+        const marsRef = marsCorrectRefCol ? String(r[marsCorrectRefCol] ?? '').trim() : '';
+        const marsPO  = marsPOCol         ? String(r[marsPOCol]         ?? '').trim() : '';
+        // Only show PO Number when it comes from a different column than Invoice No.
+        // If same column is mapped to both, the value is identical — don't duplicate it.
+        const marsPODisplay = (marsPOCol && marsPOCol !== marsVchCol) ? marsPO || null : null;
         catRows.push({
           'Particular':    rawCat,
           'Category':      String(r['Remarks'] ?? ''),
@@ -129,21 +158,35 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
           'Amount_MARS':   toNum(r[marsAmtCol]),
           'Amount_Brand':  toNum(r['Amount_Brand']),
           'Difference':    toNum(r['Difference']),
+          'Reference':     marsRef || null,
+          'PO Number':     marsPODisplay,
         });
       }
       for (const r of res.brand.rows) {
         if (toNum(r['Amount_Mars']) !== 0) continue;
         const rawCat = brandCatCol ? String(r[brandCatCol] ?? '') : '';
         if (normCat(rawCat) !== cat) continue;
+        const brandRef    = brandCorrectRefCol ? String(r[brandCorrectRefCol] ?? '').trim() : '';
+        const brandPO     = brandPOCol         ? String(r[brandPOCol]         ?? '').trim() : '';
+        const brandRefVal = brandRefCol        ? String(r[brandRefCol]        ?? '').trim() : '';
+        // If brandRefVal is a PO (found in Mars PO map), show the Mars invoice in "Invoice No"
+        // and the PO in "PO Number".
+        const marsInv          = brandRefVal ? poToMarsInvoice.get(brandRefVal.toUpperCase()) : undefined;
+        // Only use brandPO in "PO Number" when it comes from a different column than the reference.
+        // If same column is mapped to both fields, brandPO === brandRefVal — don't show it as PO
+        // unless we've confirmed via the map that it really is a PO.
+        const brandPODiffCol   = brandPOCol != null && brandPOCol !== brandRefCol;
         catRows.push({
           'Particular':    rawCat,
           'Category':      String(r['Remarks'] ?? ''),
           'Sub-Category':  '',
           'Date':          brandDateCol ? (r[brandDateCol] ?? null) : null,
-          'Invoice No':    String(r[brandRefCol] ?? ''),
+          'Invoice No':    marsInv ?? brandRefVal,
           'Amount_MARS':   0,
           'Amount_Brand':  toNum(r[brandAmtCol]),
           'Difference':    toNum(r['Diff']),
+          'Reference':     brandRef || null,
+          'PO Number':     marsInv ? (brandRefVal || null) : (brandPODiffCol ? brandPO || null : null),
         });
       }
       catRows.sort((a, b) =>
@@ -208,7 +251,7 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
   }
 
   // Column widths
-  [20, 32, 16, 14, 32, 18, 18, 16].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  [20, 32, 16, 14, 32, 18, 18, 16, 24, 20].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 }
 
 

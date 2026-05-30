@@ -276,7 +276,9 @@ export function reconcile(
     const own = marsAmt(r);
     const brandHit = key ? brandAgg.get(key) : undefined;
     const amtBrand = brandHit?.amount ?? 0;
-    const magnitudeDiff = Math.abs(Math.abs(own) - Math.abs(amtBrand));
+    // Compare total Mars amount for this key vs total Brand amount (handles multiple vouchers per PO)
+    const amtMarsTot = (key ? marsAgg.get(key)?.amount : undefined) ?? own;
+    const magnitudeDiff = Math.abs(Math.abs(amtMarsTot) - Math.abs(amtBrand));
     const displayDiff = own + amtBrand;
     let remarks: string;
     if (amtBrand === 0) {
@@ -297,7 +299,9 @@ export function reconcile(
     const own = brandAmt(r);
     const marsHit = key ? marsAgg.get(key) : undefined;
     const amtMars = marsHit?.amount ?? 0;
-    const magnitudeDiff = Math.abs(Math.abs(own) - Math.abs(amtMars));
+    // Compare total Brand amount for this key vs total Mars amount (handles multiple vouchers per PO)
+    const amtBrandTot = (key ? brandAgg.get(key)?.amount : undefined) ?? own;
+    const magnitudeDiff = Math.abs(Math.abs(amtMars) - Math.abs(amtBrandTot));
     const displayDiff = own + amtMars;
     let remarks: string;
     if (!marsHit) {
