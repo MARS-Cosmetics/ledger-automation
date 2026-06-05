@@ -49,7 +49,7 @@ const CATEGORY_MATCH_EQUIVALENCE: Record<string, string> = {
 
 // Categories that must never match across category boundaries,
 // regardless of the matchMode setting.
-const ISOLATED_CATEGORIES = new Set<string>(['marketing_exp', 'advance_adjustment']);
+const ISOLATED_CATEGORIES = new Set<string>(['marketing_exp', 'advance_adjustment', 'promo']);
 
 function isIsolatedCategory(canonicalCat: string): boolean {
   return ISOLATED_CATEGORIES.has(normCatKey(canonicalCat));
@@ -237,10 +237,20 @@ export function reconcile(
     return makeKey(v, matchCatKey(cat), mode);
   };
 
-  const isMarsOB = (r: Row) =>
-    marsCatCol ? isOpeningBalance(marsCatRaw(r)) : rowHasOpeningBalance(r);
-  const isBrandOB = (r: Row) =>
-    brandCatCol ? isOpeningBalance(brandCatRaw(r)) : rowHasOpeningBalance(r);
+  const isMarsOB = (r: Row) => {
+    if (marsCatCol) {
+      const cat = marsCatRaw(r);
+      return cat ? isOpeningBalance(cat) : rowHasOpeningBalance(r);
+    }
+    return rowHasOpeningBalance(r);
+  };
+  const isBrandOB = (r: Row) => {
+    if (brandCatCol) {
+      const cat = brandCatRaw(r);
+      return cat ? isOpeningBalance(cat) : rowHasOpeningBalance(r);
+    }
+    return rowHasOpeningBalance(r);
+  };
 
   const brandAgg = groupSum(
     brand.filter((r) => !isBrandOB(r)),
@@ -319,13 +329,15 @@ export function reconcile(
   }
 
   if (marsCatCol && brandCatCol) {
-    matchReceiptToPaymentByAmount(
+    matchReceiptToPayment(
       marsOut,
       brandOut,
       marsCatCol,
       brandCatCol,
       marsAmtCol,
       brandAmtCol,
+      marsCorrectRefCol,
+      brandCorrectRefCol,
       tolerance,
     );
   }
@@ -410,57 +422,108 @@ export function reconcile(
   };
 }
 
-function matchReceiptToPaymentByAmount(
+function matchReceiptToPayment(
   marsOut: Row[],
   brandOut: Row[],
   marsCatCol: string,
   brandCatCol: string,
   marsAmtCol: string,
   brandAmtCol: string,
+  marsCorrectRefCol: string | undefined,
+  brandCorrectRefCol: string | undefined,
   tolerance: number,
 ): void {
   const marsReceipts = marsOut
     .map((r, i) => ({ r, i }))
-    .filter(
-      ({ r }) =>
-        normCatKey(canonicalizeCategory(r[marsCatCol])) === 'receipt' &&
-        r.Remarks === 'Not Booked in Brands Ledger',
+    .filter(({ r }) =>
+      normCatKey(canonicalizeCategory(String(r[marsCatCol] ?? ''))) === 'receipt' &&
+      r.Remarks === 'Not Booked in Brands Ledger',
     );
   const brandPayments = brandOut
     .map((r, i) => ({ r, i }))
-    .filter(
-      ({ r }) =>
-        normCatKey(canonicalizeCategory(r[brandCatCol])) === 'payment' &&
-        r.Remarks === 'Not Booked by Mars',
+    .filter(({ r }) =>
+      normCatKey(canonicalizeCategory(String(r[brandCatCol] ?? ''))) === 'payment' &&
+      r.Remarks === 'Not Booked by Mars',
     );
 
   if (marsReceipts.length === 0 || brandPayments.length === 0) return;
 
-  const claimed = new Set<number>();
-  for (const { r: marsRow } of marsReceipts) {
-    const ownAbs = Math.abs(toNumber(marsRow[marsAmtCol]));
-    let bestIdx = -1;
-    let bestDiff = Infinity;
-    for (let j = 0; j < brandPayments.length; j++) {
-      if (claimed.has(j)) continue;
-      const brandRow = brandPayments[j].r;
-      const diff = Math.abs(Math.abs(toNumber(brandRow[brandAmtCol])) - ownAbs);
-      if (diff <= tolerance && diff < bestDiff) {
-        bestDiff = diff;
-        bestIdx = j;
+  // ── Group by Correct Ref No, summing amounts per group ────────────────────────
+  type Group = { indices: number[]; total: number };
+  const buildGroups = (
+    items: { r: Row; i: number }[],
+    refCol: string | undefined,
+    amtCol: string,
+  ): { byRef: Map<string, Group>; noRef: { r: Row; i: number }[] } => {
+    const byRef = new Map<string, Group>();
+    const noRef: { r: Row; i: number }[] = [];
+    for (const item of items) {
+      const ref = refCol ? normKey(item.r[refCol]) : '';
+      const amt = toNumber(item.r[amtCol]);
+      if (ref) {
+        const g = byRef.get(ref);
+        if (g) { g.indices.push(item.i); g.total += amt; }
+        else byRef.set(ref, { indices: [item.i], total: amt });
+      } else {
+        noRef.push(item);
       }
     }
-    if (bestIdx === -1) continue;
-    claimed.add(bestIdx);
-    const brandRow = brandPayments[bestIdx].r;
-    const ownAmt = toNumber(marsRow[marsAmtCol]);
+    return { byRef, noRef };
+  };
+
+  const { byRef: marsByRef, noRef: marsNoRef } =
+    buildGroups(marsReceipts, marsCorrectRefCol, marsAmtCol);
+  const { byRef: brandByRef, noRef: brandNoRef } =
+    buildGroups(brandPayments, brandCorrectRefCol, brandAmtCol);
+
+  // ── Primary: match by Correct Ref No, compare aggregated totals ───────────────
+  const matchedMarsIdx  = new Set<number>();
+  const matchedBrandIdx = new Set<number>();
+
+  for (const [ref, marsGroup] of marsByRef) {
+    const brandGroup = brandByRef.get(ref);
+    if (!brandGroup) continue;
+
+    const magnitudeDiff = Math.abs(Math.abs(marsGroup.total) - Math.abs(brandGroup.total));
+    const remark = magnitudeDiff <= tolerance ? 'Match' : 'Amount Mismatch';
+
+    for (const idx of marsGroup.indices) {
+      marsOut[idx].Amount_Brand = brandGroup.total;
+      marsOut[idx].Difference   = toNumber(marsOut[idx][marsAmtCol]) + brandGroup.total;
+      marsOut[idx].Remarks      = remark;
+      matchedMarsIdx.add(idx);
+    }
+    for (const idx of brandGroup.indices) {
+      brandOut[idx].Amount_Mars = marsGroup.total;
+      brandOut[idx].Diff        = toNumber(brandOut[idx][brandAmtCol]) + marsGroup.total;
+      brandOut[idx].Remarks     = remark;
+      matchedBrandIdx.add(idx);
+    }
+  }
+
+  // ── Fallback: amount-based match for rows with no Correct Ref No ──────────────
+  const claimedFallback = new Set<number>();
+  for (const { r: marsRow, i: marsIdx } of marsNoRef) {
+    if (matchedMarsIdx.has(marsIdx)) continue;
+    const ownAbs = Math.abs(toNumber(marsRow[marsAmtCol]));
+    let bestBrandIdx = -1;
+    let bestDiff = Infinity;
+    for (const { r: brandRow, i: brandIdx } of brandNoRef) {
+      if (claimedFallback.has(brandIdx) || matchedBrandIdx.has(brandIdx)) continue;
+      const diff = Math.abs(Math.abs(toNumber(brandRow[brandAmtCol])) - ownAbs);
+      if (diff <= tolerance && diff < bestDiff) { bestDiff = diff; bestBrandIdx = brandIdx; }
+    }
+    if (bestBrandIdx === -1) continue;
+    claimedFallback.add(bestBrandIdx);
+    const brandRow = brandOut[bestBrandIdx];
+    const ownAmt  = toNumber(marsRow[marsAmtCol]);
     const brandAmt = toNumber(brandRow[brandAmtCol]);
     marsRow.Amount_Brand = brandAmt;
-    marsRow.Difference = ownAmt + brandAmt;
-    marsRow.Remarks = 'Match';
+    marsRow.Difference   = ownAmt + brandAmt;
+    marsRow.Remarks      = 'Match';
     brandRow.Amount_Mars = ownAmt;
-    brandRow.Diff = brandAmt + ownAmt;
-    brandRow.Remarks = 'Match';
+    brandRow.Diff        = brandAmt + ownAmt;
+    brandRow.Remarks     = 'Match';
   }
 }
 
