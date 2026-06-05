@@ -35,7 +35,7 @@ const OPS_HEADERS = [
   'Amount_MARS',
   'Amount_Brand',
   'Difference',
-  'Annexure',
+  'Annex',
   'Action On',
 ] as const;
 
@@ -292,7 +292,7 @@ function writeOpenPointsSummary(wb: ExcelJS.Workbook, res: ReconResult): void {
   const seenKeys = new Set<string>(); // "canonCat||remark"
 
   let opsAnnexNum = 0;
-  const collectPairs = (orderedCats: string[], baseLabel: string): void => {
+  const collectPairs = (orderedCats: string[]): void => {
     const temp: SummaryPair[] = [];
     for (const cat of orderedCats) {
       for (const r of res.mars.rows) {
@@ -314,7 +314,7 @@ function writeOpenPointsSummary(wb: ExcelJS.Workbook, res: ReconResult): void {
     if (temp.length === 0) return;
     temp.sort((a, b) => remarkSortOrder(a.remark) - remarkSortOrder(b.remark));
     opsAnnexNum++;
-    const annexureLabel = `Annex ${opsAnnexNum} – ${baseLabel}`;
+    const annexureLabel = `Annex ${opsAnnexNum}`;
     pairs.push(...temp.map((p) => ({ ...p, annexureLabel })));
   };
 
@@ -323,10 +323,10 @@ function writeOpenPointsSummary(wb: ExcelJS.Workbook, res: ReconResult): void {
     const mergedGroup = ANNEX_MERGED_GROUPS.find((g) => g.cats.includes(cat));
     if (mergedGroup) {
       mergedGroup.cats.forEach((c) => handledCats.add(c));
-      collectPairs(mergedGroup.cats, mergedGroup.label);
+      collectPairs(mergedGroup.cats);
     } else {
       handledCats.add(cat);
-      collectPairs([cat], cat);
+      collectPairs([cat]);
     }
   }
 
@@ -366,7 +366,7 @@ function writeOpenPointsSummary(wb: ExcelJS.Workbook, res: ReconResult): void {
     row.getCell(6).value = { formula: `=SUMIFS('Annex'!$G:$G,'Annex'!$A:$A,$A${rn},'Annex'!$B:$B,$B${rn})` };
     row.getCell(7).value = { formula: `=E${rn}+F${rn}` };
     row.getCell(8).value = annexureLabel;
-    row.getCell(9).value = { formula: `=IF($B${rn}="Match","Closed","Open Point")` };
+    row.getCell(9).value = { formula: `=IF($B${rn}="Match","Closed","Open")` };
 
     for (const c of [5, 6, 7]) row.getCell(c).numFmt = MONEY_FMT;
   }
