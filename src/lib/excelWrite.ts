@@ -133,62 +133,88 @@ function writeAnnexSheet(wb: ExcelJS.Workbook, res: ReconResult): void {
   }
 
   // Helper: collect Annex rows for an ordered list of category names.
-  // Rows are emitted category by category in the given order —
-  // all rows for cats[0] first, then all rows for cats[1], etc.
-  // Within each category, rows are grouped by remark (no intermixing).
-  // Particular column shows the raw ledger value, not any merged label.
+  // Rows are emitted category by category in the given order.
+  // Within each category, duplicate Invoice Numbers (same vch_no, same category, same recon period)
+  // are aggregated: amounts are summed and only one consolidated row is shown per Invoice No.
+  // Rows without an Invoice No are kept as individual entries.
+  // After aggregation, rows are sorted by remark (no intermixing between different remarks).
   const collectRows = (orderedCats: string[]): Row[] => {
     const rows: Row[] = [];
     for (const cat of orderedCats) {
-      const catRows: Row[] = [];
+      // Map key → aggregated row. Blank Invoice Nos use a unique per-row key so they are
+      // never merged with each other.
+      const marsAgg = new Map<string, Row>();
+      let marsBlankSeq = 0;
+
       for (const r of res.mars.rows) {
         const rawCat = marsCatCol ? String(r[marsCatCol] ?? '') : '';
         if (normCat(rawCat) !== cat) continue;
-        const marsRef = marsCorrectRefCol ? String(r[marsCorrectRefCol] ?? '').trim() : '';
-        const marsPO  = marsPOCol         ? String(r[marsPOCol]         ?? '').trim() : '';
-        // Only show PO Number when it comes from a different column than Invoice No.
-        // If same column is mapped to both, the value is identical — don't duplicate it.
-        const marsPODisplay = (marsPOCol && marsPOCol !== marsVchCol) ? marsPO || null : null;
-        catRows.push({
-          'Particular':    rawCat,
-          'Category':      String(r['Remarks'] ?? ''),
-          'Sub-Category':  '',
-          'Date':          marsDateCol ? (r[marsDateCol] ?? null) : null,
-          'Invoice No':    String(r[marsVchCol] ?? ''),
-          'Amount_MARS':   toNum(r[marsAmtCol]),
-          'Amount_Brand':  toNum(r['Amount_Brand']),
-          'Difference':    toNum(r['Difference']),
-          'Reference':     marsRef || null,
-          'PO Number':     marsPODisplay,
-        });
+        const invNo        = String(r[marsVchCol] ?? '').trim();
+        const marsRef      = marsCorrectRefCol ? String(r[marsCorrectRefCol] ?? '').trim() : '';
+        const marsPO       = marsPOCol         ? String(r[marsPOCol]         ?? '').trim() : '';
+        const marsPODisp   = (marsPOCol && marsPOCol !== marsVchCol) ? marsPO || null : null;
+        const aggKey       = invNo || `__mars_blank_${marsBlankSeq++}`;
+
+        if (invNo && marsAgg.has(aggKey)) {
+          const ex = marsAgg.get(aggKey)!;
+          ex['Amount_MARS']  = toNum(ex['Amount_MARS']) + toNum(r[marsAmtCol]);
+          // Amount_Brand is the same aggregated brand total for all rows with the same key — keep as-is
+          ex['Difference']   = toNum(ex['Amount_MARS']) + toNum(ex['Amount_Brand']);
+          if (!ex['Reference']  && marsRef)    ex['Reference']  = marsRef;
+          if (!ex['PO Number']  && marsPODisp) ex['PO Number']  = marsPODisp;
+        } else {
+          marsAgg.set(aggKey, {
+            'Particular':   rawCat,
+            'Category':     String(r['Remarks'] ?? ''),
+            'Sub-Category': '',
+            'Date':         marsDateCol ? (r[marsDateCol] ?? null) : null,
+            'Invoice No':   invNo,
+            'Amount_MARS':  toNum(r[marsAmtCol]),
+            'Amount_Brand': toNum(r['Amount_Brand']),
+            'Difference':   toNum(r['Difference']),
+            'Reference':    marsRef || null,
+            'PO Number':    marsPODisp,
+          });
+        }
       }
+
+      const brandAgg = new Map<string, Row>();
+      let brandBlankSeq = 0;
+
       for (const r of res.brand.rows) {
         if (toNum(r['Amount_Mars']) !== 0) continue;
-        const rawCat = brandCatCol ? String(r[brandCatCol] ?? '') : '';
+        const rawCat      = brandCatCol ? String(r[brandCatCol] ?? '') : '';
         if (normCat(rawCat) !== cat) continue;
         const brandRef    = brandCorrectRefCol ? String(r[brandCorrectRefCol] ?? '').trim() : '';
         const brandPO     = brandPOCol         ? String(r[brandPOCol]         ?? '').trim() : '';
         const brandRefVal = brandRefCol        ? String(r[brandRefCol]        ?? '').trim() : '';
-        // If brandRefVal is a PO (found in Mars PO map), show the Mars invoice in "Invoice No"
-        // and the PO in "PO Number".
-        const marsInv          = brandRefVal ? poToMarsInvoice.get(brandRefVal.toUpperCase()) : undefined;
-        // Only use brandPO in "PO Number" when it comes from a different column than the reference.
-        // If same column is mapped to both fields, brandPO === brandRefVal — don't show it as PO
-        // unless we've confirmed via the map that it really is a PO.
-        const brandPODiffCol   = brandPOCol != null && brandPOCol !== brandRefCol;
-        catRows.push({
-          'Particular':    rawCat,
-          'Category':      String(r['Remarks'] ?? ''),
-          'Sub-Category':  '',
-          'Date':          brandDateCol ? (r[brandDateCol] ?? null) : null,
-          'Invoice No':    marsInv ?? brandRefVal,
-          'Amount_MARS':   0,
-          'Amount_Brand':  toNum(r[brandAmtCol]),
-          'Difference':    toNum(r['Diff']),
-          'Reference':     brandRef || null,
-          'PO Number':     marsInv ? (brandRefVal || null) : (brandPODiffCol ? brandPO || null : null),
-        });
+        const marsInv     = brandRefVal ? poToMarsInvoice.get(brandRefVal.toUpperCase()) : undefined;
+        const brandPODiffCol = brandPOCol != null && brandPOCol !== brandRefCol;
+        const displayInv  = marsInv ?? brandRefVal;
+        const aggKey      = displayInv || `__brand_blank_${brandBlankSeq++}`;
+
+        if (displayInv && brandAgg.has(aggKey)) {
+          const ex = brandAgg.get(aggKey)!;
+          ex['Amount_Brand'] = toNum(ex['Amount_Brand']) + toNum(r[brandAmtCol]);
+          ex['Difference']   = toNum(ex['Amount_MARS']) + toNum(ex['Amount_Brand']);
+          if (!ex['Reference'] && brandRef) ex['Reference'] = brandRef;
+        } else {
+          brandAgg.set(aggKey, {
+            'Particular':   rawCat,
+            'Category':     String(r['Remarks'] ?? ''),
+            'Sub-Category': '',
+            'Date':         brandDateCol ? (r[brandDateCol] ?? null) : null,
+            'Invoice No':   displayInv,
+            'Amount_MARS':  0,
+            'Amount_Brand': toNum(r[brandAmtCol]),
+            'Difference':   toNum(r['Diff']),
+            'Reference':    brandRef || null,
+            'PO Number':    marsInv ? (brandRefVal || null) : (brandPODiffCol ? brandPO || null : null),
+          });
+        }
       }
+
+      const catRows: Row[] = [...marsAgg.values(), ...brandAgg.values()];
       catRows.sort((a, b) =>
         remarkSortOrder(String(a['Category'] ?? '')) - remarkSortOrder(String(b['Category'] ?? ''))
       );
